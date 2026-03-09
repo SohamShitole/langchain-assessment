@@ -1,0 +1,48 @@
+# Deep Research Agent Configuration
+# Copy and edit this file to tune the agent. CLI args override these values.
+
+# ── Search Settings ──
+search:
+  provider: "tavily"              # "tavily" or "gensee"
+  max_iterations: 3               # max research loop iterations
+  queries_per_iteration: 30        # search queries generated per iteration
+  results_per_query: 5            # results returned per query
+  search_depth: "advanced"        # "basic" (1 credit) or "advanced" (2 credits)
+  include_raw_content: true       # fetch full page content with search results
+
+# ── Extract / Enrichment Settings ──
+extract:
+  fetch_full_pages: true          # enrich evidence with full page content
+  extract_depth: "advanced"          # "basic" or "advanced" (for tables/structured data)
+  full_page_max_chars: 10000       # max chars per enriched page
+
+# ── Model Settings ──
+models:
+  # ---------- Phase 1 ----------
+  classifier: "gpt-5-nano"
+  planner: "gpt-5-mini"
+  planner_strong: "gpt-5.2"
+  normalizer: "gpt-5-nano"
+  coverage: "gpt-5-nano"
+  writer: "gpt-5.2"
+
+  # ---------- Phase 2 ----------
+  decompose: "gpt-5.2"
+  section_query: "gpt-5-mini"
+  section_summary: "gpt-5-mini"
+  section_coverage: "gpt-5-nano"
+  conflict_detect: "gpt-5-mini"
+  conflict_resolver: "gpt-5-mini"
+
+# ── Writer Settings ──
+writer:
+  context_max_items: 60           # max evidence items passed to writer
+
+# ── Section Worker Settings (Phase 2) ──
+section:
+  max_iterations: 3               # max iterations per section worker
+  queries_per_iteration: 3        # search queries per section iteration
+
+# ── Conflict Resolution (Phase 2) ──
+conflict:
+  resolution_enabled: true        # enable conflict resolution research
