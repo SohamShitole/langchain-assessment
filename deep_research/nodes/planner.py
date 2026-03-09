@@ -10,6 +10,7 @@ from deep_research.configuration import (
     get_config,
 )
 from deep_research.prompts import RESEARCH_PLAN_PROMPT
+from deep_research.research_logger import log_decision, log_node_end, log_node_start, log_prompt
 from deep_research.state import ResearchState
 
 
@@ -18,12 +19,14 @@ def create_research_plan(
     config: RunnableConfig | None = None,
 ) -> dict:
     """Create a research plan: objective, structure, difficulty areas. No search queries."""
+    log_node_start("create_research_plan", config)
     query = state.get("query") or ""
     planner_model = state.get("planner_model") or "gpt-4o-mini"
     cfg = get_config(config)
 
-    llm = ChatOpenAI(model=planner_model, temperature=0)
     prompt = RESEARCH_PLAN_PROMPT.format(query=query)
+    log_prompt("create_research_plan", prompt, model=planner_model)
+    llm = ChatOpenAI(model=planner_model, temperature=0)
     raw = llm.invoke([{"role": "user", "content": prompt}])
     text = raw.content if hasattr(raw, "content") else str(raw)
 
@@ -57,6 +60,8 @@ def create_research_plan(
         "section_descriptions": data.get("section_descriptions", []),
     }
     report_outline = research_plan.get("desired_structure", [])
+    log_decision("create_research_plan", f"sections={len(report_outline)}", {"section_names": research_plan.get("section_names", [])})
+    log_node_end("create_research_plan", {"sections_created": len(report_outline), "objective": research_plan.get("objective", "")[:100]})
 
     return {
         "research_plan": research_plan,

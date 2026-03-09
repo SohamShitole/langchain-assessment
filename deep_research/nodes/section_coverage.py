@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field, model_validator
 
 from deep_research.configuration import get_config
 from deep_research.prompts import SECTION_COVERAGE_PROMPT
+from deep_research.research_logger import log_decision, log_node_end, log_node_start, log_prompt
 from deep_research.state import SectionWorkerState
 
 
@@ -40,6 +41,8 @@ def section_assess_coverage(
 ) -> dict:
     """Assess whether this section has sufficient evidence."""
     section_task = state.get("section_task") or {}
+    section_id = section_task.get("id", "")
+    log_node_start("section_assess_coverage", config, section_id=section_id)
     evidence = list(state.get("section_evidence") or [])
 
     cfg = get_config(config)
@@ -60,6 +63,7 @@ def section_assess_coverage(
         count=len(evidence),
         evidence_summary=evidence_summary,
     )
+    log_prompt("section_assess_coverage", prompt, model=model_name)
 
     llm = ChatOpenAI(model=model_name, temperature=0)
     structured = llm.with_structured_output(
@@ -71,6 +75,12 @@ def section_assess_coverage(
         {"description": g.description, "critical": g.critical}
         for g in (result.gaps or [])
     ]
+    log_decision(
+        "section_assess_coverage",
+        f"complete={result.section_complete}, score={result.coverage_score}",
+        {"gaps": len(gaps), "reasoning": result.reasoning},
+    )
+    log_node_end("section_assess_coverage", {"section_complete": result.section_complete, "coverage_score": result.coverage_score})
 
     return {
         "section_coverage": result.coverage_score,

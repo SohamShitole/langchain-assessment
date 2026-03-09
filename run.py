@@ -16,6 +16,7 @@ from langchain_core.messages import HumanMessage
 
 from deep_research.configuration import load_config_file
 from deep_research.graph import create_research_graph
+from deep_research.research_logger import close_log, init_log
 
 
 def main() -> None:
@@ -78,6 +79,16 @@ def main() -> None:
         action="store_true",
         help="Save research trace JSON alongside report",
     )
+    parser.add_argument(
+        "--log",
+        type=str,
+        nargs="?",
+        const="auto",
+        default=None,
+        metavar="PATH",
+        help="Write process log (prompts, decisions, routing) to file. "
+        "Use --log for auto path (alongside report), or --log path/to/file.log",
+    )
     args = parser.parse_args()
 
     query = args.query.strip()
@@ -102,9 +113,28 @@ def main() -> None:
 
     run_config = {"configurable": cfg}
 
+    # Log file: same dir as report, same base name, .log extension
+    log_path = None
+    if args.log:
+        output_dir = args.output or "reports"
+        os.makedirs(output_dir, exist_ok=True)
+        ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        safe_query = re.sub(r"[^\w\s-]", "", query)[:40].strip().replace(" ", "_")
+        safe_query = safe_query if safe_query else "report"
+        if args.log == "auto":
+            log_path = os.path.join(output_dir, f"log_{safe_query}_{ts}.log")
+        else:
+            log_path = args.log
+        init_log(log_path)
+        print(f"Log file: {log_path}")
+
     graph = create_research_graph()
     initial_state = {"messages": [HumanMessage(content=query)]}
-    final = graph.invoke(initial_state, config=run_config)
+    try:
+        final = graph.invoke(initial_state, config=run_config)
+    finally:
+        if log_path:
+            close_log()
 
     messages = final.get("messages") or []
     if messages:

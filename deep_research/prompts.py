@@ -91,6 +91,7 @@ Requirements:
 - Do not make claims not supported by the evidence
 - Mention uncertainty where evidence is weak or incomplete
 - Structure: Title, Executive Summary, Main Findings, Detailed Analysis by Section, Caveats/Remaining Gaps, Sources
+- Use section titles only in headings (e.g. "## Introduction" or "## Applications and Use Cases"); do NOT include internal IDs like s1, s2, s3
 - If coverage_status is insufficient or iteration budget was exhausted, include a clear Caveats section
 - End with a Sources section listing each citation with URL and title
 
@@ -208,7 +209,7 @@ Return JSON:
   "reasoning": "brief explanation"
 }}"""
 
-SECTION_SUMMARY_PROMPT = """Create a brief section summary artifact.
+SECTION_SUMMARY_PROMPT = """Create a rich section summary artifact.
 
 Section: {section_id} - {section_title}
 Goal: {section_goal}
@@ -216,7 +217,7 @@ Goal: {section_goal}
 Evidence found: {evidence_count} items
 
 Write:
-1. summary_text: 2-4 sentences summarizing key findings for this section
+1. summary_text: 4-6 sentences summarizing key findings for this section. Include 1-2 illustrative examples or concrete findings when available. Elaborate enough that the writer has a strong backbone to expand from.
 2. strongest_sources: list of 2-5 URLs that are the best sources
 3. unresolved_questions: list of open questions or gaps (if any)
 4. confidence: 0-1 score for how confident we are in this section
@@ -291,7 +292,64 @@ Requirements:
 - Surface contradictions explicitly - do not silently flatten conflicting evidence
 - Prefer primary sources in citations when available
 - Structure: Title, Executive Summary, Main Findings, Detailed Analysis by Section, Caveats/Conflicts, Sources
+- Use section titles only in headings (e.g. "## Introduction" or "## Applications"); do NOT include internal IDs like s1, s2, s3
 - Include a Caveats section for unresolved questions and conflicts
 - End with a Sources section listing each citation with URL and title
 
 Output the report markdown only. Do not wrap in code blocks."""
+
+# ── Section-by-section writing prompts (avoids context-window overflow) ──
+
+SECTION_DRAFT_PROMPT = """You are writing ONE section of a research report. Write a detailed, well-cited section.
+
+Section title: {section_title}
+Section description: {section_description}
+
+Research summary for this section:
+{section_summary}
+
+Unresolved questions: {unresolved_questions}
+
+Evidence ({evidence_count} items — use citation_index for inline citations like [N]):
+{section_evidence}
+
+Requirements:
+- Write detailed, thorough markdown content for this section (do NOT include a section heading — it will be added later)
+- Use inline citations [N] where N is the citation_index from the evidence
+- Explain concepts clearly; assume a reader who is informed but not an expert in this exact topic
+- Include concrete examples, data points, or case studies from the evidence when available
+- Explain WHY things matter, not just WHAT they are
+- Mention unresolved questions or limitations where relevant
+- Do NOT make claims unsupported by the evidence
+- Do NOT wrap output in code blocks
+
+Output the section content only (no heading, no title)."""
+
+REPORT_ASSEMBLY_PROMPT = """You are assembling a final research report from pre-written section drafts.
+
+Report structure:
+{report_outline}
+
+Pre-written section drafts (each already contains inline citations):
+{section_drafts}
+
+Conflicts and caveats to surface:
+{conflicts_and_caveats}
+
+Sources list:
+{sources_list}
+
+Requirements:
+- Produce a complete markdown report with this structure:
+  1. Title (# heading)
+  2. Executive Summary — synthesize the key takeaways across ALL sections (2-3 paragraphs, with citations)
+  3. Main Findings — 5-7 numbered key findings that cut across sections, each with citations
+  4. Detailed Analysis by Section — include each section draft under its own ## heading. You may lightly edit for flow, transitions, and consistency, but preserve ALL citations and substantive content. Do NOT cut detail.
+  5. Caveats/Conflicts (Unresolved Questions) — surface conflicts, unresolved questions, and limitations from the evidence
+  6. Sources — reproduce the sources list provided below
+- Preserve ALL inline citations [N] from the section drafts exactly as they appear
+- Do NOT invent new claims or citations
+- Use section titles only in headings; do NOT include internal IDs like s1, s2, s3
+- Do NOT wrap output in code blocks
+
+Output the complete report markdown."""

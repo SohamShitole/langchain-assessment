@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from deep_research.configuration import get_config
 from deep_research.nodes.search import _gensee_search, _tavily_search
 from deep_research.prompts import CONFLICT_DETECT_PROMPT, CONFLICT_RESOLVE_PROMPT
+from deep_research.research_logger import log_decision, log_node_end, log_node_start, log_prompt
 from deep_research.state import ResearchState
 
 
@@ -26,6 +27,7 @@ def detect_global_gaps_and_conflicts(
     config: RunnableConfig | None = None,
 ) -> dict:
     """Detect conflicting claims in merged evidence. Route to resolve or write."""
+    log_node_start("detect_global_gaps_and_conflicts", config)
     merged = state.get("merged_evidence") or []
     cfg = get_config(config)
     model_name = cfg.get("conflict_detect_model") or "gpt-4o-mini"
@@ -42,6 +44,7 @@ def detect_global_gaps_and_conflicts(
     summary_str = json.dumps(summary, indent=2)
 
     prompt = CONFLICT_DETECT_PROMPT.format(merged_evidence_summary=summary_str)
+    log_prompt("detect_global_gaps_and_conflicts", prompt, model=model_name)
 
     llm = ChatOpenAI(model=model_name, temperature=0)
     structured = llm.with_structured_output(ConflictOutput, method="function_calling")
@@ -49,6 +52,9 @@ def detect_global_gaps_and_conflicts(
 
     conflicts = result.conflicts or []
     conflict_resolution_needed = result.conflict_resolution_needed and bool(conflicts)
+
+    log_decision("detect_global_gaps_and_conflicts", f"conflicts={len(conflicts)}, resolution_needed={conflict_resolution_needed}", {"reasoning": result.reasoning})
+    log_node_end("detect_global_gaps_and_conflicts", {"conflicts_count": len(conflicts), "conflict_resolution_needed": conflict_resolution_needed})
 
     trace = dict(state.get("research_trace") or {})
     trace["conflicts_detected"] = len(conflicts)
@@ -67,6 +73,7 @@ def conflict_resolution_research(
     config: RunnableConfig | None = None,
 ) -> dict:
     """Run targeted search to resolve conflicts. Update merged_evidence."""
+    log_node_start("conflict_resolution_research", config)
     conflicts = state.get("global_conflicts") or []
     merged = list(state.get("merged_evidence") or [])
     cfg = get_config(config)
@@ -74,6 +81,7 @@ def conflict_resolution_research(
 
     conflicts_str = json.dumps(conflicts, indent=2)
     prompt = CONFLICT_RESOLVE_PROMPT.format(conflicts=conflicts_str)
+    log_prompt("conflict_resolution_research", prompt, model=model_name)
 
     llm = ChatOpenAI(model=model_name, temperature=0)
     raw = llm.invoke([{"role": "user", "content": prompt}])
@@ -157,6 +165,8 @@ def conflict_resolution_research(
             })
 
     merged = merged + new_items
+
+    log_node_end("conflict_resolution_research", {"queries_run": len(queries), "new_items_added": len(new_items)})
 
     # Mark conflicts as resolved (simplified - full resolution would need LLM)
     updated_conflicts = []

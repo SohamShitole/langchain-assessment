@@ -35,7 +35,7 @@ def run_evals(
     score, reason = eval_source_quality(writer_evidence)
     results["source_quality"] = (score, reason)
 
-    score, reason = eval_conflict_handling(report_markdown)
+    score, reason = eval_conflict_handling(report_markdown, research_trace=research_trace)
     results["conflict_handling"] = (score, reason)
 
     score, reason = eval_stop_decision(research_trace, knowledge_gaps)

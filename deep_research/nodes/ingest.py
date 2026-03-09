@@ -4,6 +4,7 @@ from langchain_core.messages import HumanMessage
 from langchain_core.runnables import RunnableConfig
 
 from deep_research.configuration import get_config
+from deep_research.research_logger import log_node_end, log_node_start
 from deep_research.state import ResearchState
 
 
@@ -12,6 +13,7 @@ def ingest_request(
     config: RunnableConfig | None = None,
 ) -> dict:
     """Read latest user request from messages and initialize state fields."""
+    log_node_start("ingest_request", config)
     messages = state.get("messages") or []
     query = ""
     for msg in reversed(messages):
@@ -60,3 +62,4 @@ def ingest_request(
         "research_trace": {},
         "conflict_resolution_enabled": conflict_resolution_enabled,
     }
+    log_node_end("ingest_request", {"query": query[:80] + "..." if len(query) > 80 else query, "max_iterations": max_iterations})

@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 
 from deep_research.configuration import get_config
 from deep_research.prompts import SECTION_NORMALIZE_PROMPT
+from deep_research.research_logger import log_node_end, log_node_start, log_prompt
 from deep_research.state import SectionWorkerState
 
 
@@ -15,9 +16,9 @@ class SectionEvidenceItem(BaseModel):
     """Single evidence item with enriched source metadata."""
 
     url: str = Field(description="Source URL")
-    title: str = Field(description="Source title")
-    snippet: str = Field(description="Best passage")
-    relevance_score: int = Field(description="1-10")
+    title: str = Field(default="", description="Source title")
+    snippet: str = Field(default="", description="Best passage from content")
+    relevance_score: int = Field(default=5, description="1-10")
     credibility: str = Field(default="medium", description="high|medium|low")
     credibility_score: int = Field(default=5, description="1-10 numeric")
     source_type: str = Field(
@@ -41,9 +42,11 @@ def section_normalize(
     config: RunnableConfig | None = None,
 ) -> dict:
     """Convert raw search results to enriched evidence with source quality metadata."""
-    raw = list(state.get("section_raw_results") or [])
     section_task = state.get("section_task") or {}
     section_id = section_task.get("id", "")
+    log_node_start("section_normalize", config, section_id=section_id)
+
+    raw = list(state.get("section_raw_results") or [])
     section_goal = section_task.get("goal", "")
 
     cfg = get_config(config)
@@ -69,6 +72,7 @@ def section_normalize(
         section_goal=section_goal,
         raw_results=raw_str,
     )
+    log_prompt("section_normalize", prompt, model=model_name)
 
     llm = ChatOpenAI(model=model_name, temperature=0)
     structured = llm.with_structured_output(
@@ -77,9 +81,9 @@ def section_normalize(
     result = structured.invoke([{"role": "user", "content": prompt}])
 
     url_to_raw: dict[str, str] = {
-        (r.get("url") or ""): (r.get("raw_content") or "")
+        (r.get("url") or ""): (r.get("raw_content") or r.get("content") or "")
         for r in raw
-        if r.get("raw_content")
+        if r.get("raw_content") or r.get("content")
     }
 
     new_items: list[dict] = []
@@ -88,10 +92,11 @@ def section_normalize(
     for item in result.items or []:
         if item.relevance_score < 5:
             continue
+        snippet = item.snippet or url_to_raw.get(item.url, "")[:500] or item.title
         obj = {
             "url": item.url,
-            "title": item.title,
-            "snippet": item.snippet,
+            "title": item.title or "Untitled",
+            "snippet": snippet,
             "section_ids": [section_id],
             "relevance_score": item.relevance_score,
             "credibility": item.credibility,
@@ -108,6 +113,7 @@ def section_normalize(
         new_items.append(obj)
         new_seen.add(item.url)
 
+    log_node_end("section_normalize", {"raw_count": len(raw), "evidence_count": len(new_items)})
     return {
         "section_evidence": new_items,
         "section_seen_urls": new_seen,

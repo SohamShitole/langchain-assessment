@@ -6,6 +6,7 @@ from langchain_core.runnables import RunnableConfig
 
 from deep_research.configuration import get_config
 from deep_research.nodes.search import _gensee_search, _tavily_search
+from deep_research.research_logger import log_node_end, log_node_start
 from deep_research.state import SectionWorkerState
 
 
@@ -17,6 +18,9 @@ def section_search(
     from dotenv import load_dotenv
 
     load_dotenv()
+
+    section_id = (state.get("section_task") or {}).get("id", "")
+    log_node_start("section_search", config, section_id=section_id)
 
     queries = state.get("section_queries") or []
     global_seen = state.get("global_seen_urls") or set()
@@ -72,6 +76,7 @@ def section_search(
             new_results.append({"query": q, "section_id": section_id, **r})
             new_seen.add(url)
 
+    log_node_end("section_search", {"queries_run": len(queries), "results_count": len(new_results), "new_urls": len(new_seen)})
     return {
         "section_raw_results": new_results,
         "section_seen_urls": new_seen,

@@ -19,6 +19,7 @@ from deep_research.nodes.merge import merge_section_evidence
 from deep_research.nodes.normalize import normalize_and_map_evidence
 from deep_research.nodes.planner import create_research_plan, plan_and_generate_queries
 from deep_research.nodes.search import run_search
+from deep_research.nodes.section_writer import write_sections
 from deep_research.nodes.writer import write_report
 from deep_research.nodes.writer_context import prepare_writer_context
 from deep_research.routing import conflict_route, route
@@ -46,6 +47,7 @@ def create_research_graph():
     builder.add_node("detect_global_gaps_and_conflicts", detect_global_gaps_and_conflicts)
     builder.add_node("conflict_resolution_research", conflict_resolution_research)
     builder.add_node("prepare_writer_context", prepare_writer_context)
+    builder.add_node("write_sections", write_sections)
     builder.add_node("write_report", write_report)
     builder.add_node("finalize_messages", finalize_messages)
 
@@ -65,7 +67,8 @@ def create_research_graph():
         },
     )
     builder.add_edge("conflict_resolution_research", "prepare_writer_context")
-    builder.add_edge("prepare_writer_context", "write_report")
+    builder.add_edge("prepare_writer_context", "write_sections")
+    builder.add_edge("write_sections", "write_report")
     builder.add_edge("write_report", "finalize_messages")
     builder.add_edge("finalize_messages", "__end__")
 

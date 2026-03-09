@@ -8,6 +8,7 @@ from urllib.request import Request, urlopen
 from langchain_core.runnables import RunnableConfig
 
 from deep_research.configuration import get_config
+from deep_research.research_logger import log_node_end, log_node_start
 from deep_research.state import ResearchState
 
 # Optional: trafilatura for fallback extraction (install: pip install trafilatura)
@@ -84,6 +85,7 @@ def prepare_writer_context(
 ) -> dict:
     """Rank evidence, ensure section coverage, cap volume, output writer_evidence_subset.
     Phase 2: uses merged_evidence and supporting_sections when available."""
+    log_node_start("prepare_writer_context", config)
     # Prefer Phase 2 merged_evidence; fallback to Phase 1 evidence_items
     merged = list(state.get("merged_evidence") or [])
     evidence = list(state.get("evidence_items") or [])
@@ -203,6 +205,7 @@ def prepare_writer_context(
     # Update trace
     trace = dict(state.get("research_trace") or {})
     trace["writer_evidence_count"] = len(chosen)
+    log_node_end("prepare_writer_context", {"writer_evidence_count": len(chosen), "sections_covered": len(section_ids)})
 
     return {
         "writer_evidence_subset": chosen,

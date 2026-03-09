@@ -1,5 +1,6 @@
 """Routing logic for the research graph."""
 
+from deep_research.research_logger import log_route
 from deep_research.state import ResearchState, SectionWorkerState
 
 # Phase 1 (legacy)
@@ -22,9 +23,12 @@ def route(state: ResearchState) -> str:
     max_iterations = state.get("max_iterations") or 3
 
     if coverage == "sufficient":
+        log_route("assess_coverage", PREPARE_WRITER, "coverage sufficient")
         return PREPARE_WRITER
     if iteration < max_iterations:
+        log_route("assess_coverage", CONTINUE_RESEARCH, f"iteration {iteration}/{max_iterations}, need more")
         return CONTINUE_RESEARCH
+    log_route("assess_coverage", PREPARE_WRITER, "iteration budget exhausted")
     return PREPARE_WRITER
 
 
@@ -33,11 +37,15 @@ def section_route(state: SectionWorkerState) -> str:
     section_complete = state.get("section_complete", False)
     iteration = state.get("section_iteration") or 0
     max_iterations = state.get("section_max_iterations") or 3
+    section_id = (state.get("section_task") or {}).get("id", "?")
 
     if section_complete:
+        log_route(f"section_assess_coverage[{section_id}]", SECTION_COMPLETE, "section complete")
         return SECTION_COMPLETE
     if iteration < max_iterations:
+        log_route(f"section_assess_coverage[{section_id}]", SECTION_NEEDS_MORE, f"iteration {iteration}/{max_iterations}")
         return SECTION_NEEDS_MORE
+    log_route(f"section_assess_coverage[{section_id}]", SECTION_COMPLETE, "budget exhausted")
     return SECTION_COMPLETE  # Budget exhausted, summarize what we have
 
 
@@ -47,5 +55,8 @@ def conflict_route(state: ResearchState) -> str:
     resolution_enabled = state.get("conflict_resolution_enabled", True)
 
     if conflict_resolution_needed and resolution_enabled:
+        log_route("detect_global_gaps_and_conflicts", CONFLICT_RESOLUTION, "conflicts need resolution")
         return CONFLICT_RESOLUTION
+    reason = "no conflicts" if not conflict_resolution_needed else "resolution disabled"
+    log_route("detect_global_gaps_and_conflicts", READY_TO_WRITE, reason)
     return READY_TO_WRITE

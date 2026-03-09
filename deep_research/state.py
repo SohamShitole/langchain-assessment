@@ -49,6 +49,7 @@ class ResearchState(TypedDict, total=False):
     section_summaries: list[dict]
     global_seen_urls: Annotated[set[str], _merge_sets]
     research_trace: dict
+    section_drafts: list[dict]
     conflict_resolution_needed: bool
     conflict_resolution_enabled: bool
     section_max_iterations: Annotated[int, _keep_first]  # Reducer for parallel workers

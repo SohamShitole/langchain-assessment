@@ -1,17 +1,25 @@
 """Conflict handling eval: contradictory evidence should be surfaced honestly."""
 
-def eval_conflict_handling(report_markdown: str) -> tuple[float, str]:
-    """Check if report mentions caveats, conflicts, or uncertainty."""
+from deep_research.evals.judge import judge_call
+
+RUBRIC = """Score 0-10: Does the report honestly surface contradictions, uncertainties, or disagreements in the evidence?
+- It should NOT present contested facts as settled.
+- Penalise confident assertions where evidence conflicts.
+- 10 = clearly acknowledges conflicts/uncertainty; 0 = presents contested claims as facts."""
+
+
+def eval_conflict_handling(
+    report_markdown: str,
+    research_trace: dict | None = None,
+) -> tuple[float, str]:
+    """Check if report surfaces conflicts and caveats (LLM-as-judge)."""
     if not report_markdown:
         return 0.0, "Empty report"
 
-    lower = report_markdown.lower()
-    indicators = [
-        "caveat", "however", "conflict", "disagree", "unclear",
-        "uncertain", "limited", "inconclusive", "varies", "differ",
-        "contradict", "contrast", "alternative view", "on the other hand",
-    ]
-    found = sum(1 for i in indicators if i in lower)
-    score = min(1.0, found / 3 * 0.5 + 0.5)
-    reason = f"Found {found} conflict/caveat indicators"
-    return round(score, 2), reason
+    report_trunc = report_markdown[:4000] + ("..." if len(report_markdown) > 4000 else "")
+    trace = research_trace or {}
+    conflict_info = f"Conflicts detected in research: {trace.get('conflicts_detected', 0)}"
+    if trace.get("conflict_records"):
+        conflict_info += "\nConflict records: " + str(trace["conflict_records"])[:500]
+    context = f"{conflict_info}\n\nREPORT:\n{report_trunc}"
+    return judge_call(RUBRIC, context)

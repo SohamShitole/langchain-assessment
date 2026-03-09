@@ -14,7 +14,7 @@ search:
 extract:
   fetch_full_pages: true          # enrich evidence with full page content
   extract_depth: "advanced"          # "basic" or "advanced" (for tables/structured data)
-  full_page_max_chars: 10000       # max chars per enriched page
+  full_page_max_chars: 30000       # max chars per enriched page
 
 # ── Model Settings ──
 models:
@@ -36,12 +36,12 @@ models:
 
 # ── Writer Settings ──
 writer:
-  context_max_items: 60           # max evidence items passed to writer
+  context_max_items: 100           # max evidence items passed to writer
 
 # ── Section Worker Settings (Phase 2) ──
 section:
-  max_iterations: 3               # max iterations per section worker
-  queries_per_iteration: 3        # search queries per section iteration
+  max_iterations: 5               # max iterations per section worker
+  queries_per_iteration: 5        # search queries per section iteration
 
 # ── Conflict Resolution (Phase 2) ──
 conflict:

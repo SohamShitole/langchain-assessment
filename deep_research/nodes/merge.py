@@ -1,6 +1,6 @@
 """merge_section_evidence node - combine section results with dedup and provenance."""
 
-
+from deep_research.research_logger import log_node_end, log_node_start
 from deep_research.state import ResearchState
 
 
@@ -8,6 +8,7 @@ def merge_section_evidence(
     state: ResearchState,
 ) -> dict:
     """Merge section_results into merged_evidence with dedup and provenance."""
+    log_node_start("merge_section_evidence")
     section_results = state.get("section_results") or []
     urls_seen: set[str] = set()
     merged: list[dict] = []
@@ -68,6 +69,7 @@ def merge_section_evidence(
         if isinstance(sr, dict)
     }
 
+    log_node_end("merge_section_evidence", {"merged_count": len(merged), "urls_deduped": urls_deduped, "sections": len(section_summaries)})
     return {
         "merged_evidence": merged,
         "section_summaries": section_summaries,

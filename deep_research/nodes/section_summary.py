@@ -7,6 +7,7 @@ from langchain_core.runnables import RunnableConfig
 
 from deep_research.configuration import get_config
 from deep_research.prompts import SECTION_SUMMARY_PROMPT
+from deep_research.research_logger import log_node_end, log_node_start, log_prompt
 from deep_research.state import SectionWorkerState
 
 
@@ -16,12 +17,13 @@ def generate_section_summary(
 ) -> dict:
     """Produce section summary: findings, strongest sources, unresolved questions, confidence."""
     section_task = state.get("section_task") or {}
+    section_id = section_task.get("id", "")
+    log_node_start("generate_section_summary", config, section_id=section_id)
     evidence = list(state.get("section_evidence") or [])
 
     cfg = get_config(config)
     model_name = cfg.get("section_summary_model") or "gpt-4o-mini"
 
-    section_id = section_task.get("id", "")
     section_title = section_task.get("title", "")
     section_goal = section_task.get("goal", "")
 
@@ -31,6 +33,7 @@ def generate_section_summary(
         section_goal=section_goal,
         evidence_count=len(evidence),
     )
+    log_prompt("generate_section_summary", prompt, model=model_name)
 
     llm = ChatOpenAI(model=model_name, temperature=0)
     raw = llm.invoke([{"role": "user", "content": prompt}])
@@ -64,6 +67,8 @@ def generate_section_summary(
         "unresolved_questions": data.get("unresolved_questions") or [],
         "confidence": float(data.get("confidence", 0.5)),
     }
+
+    log_node_end("generate_section_summary", {"confidence": summary.get("confidence"), "evidence_count": len(evidence)})
 
     # Build SectionResult for parent graph (section_results has operator.add reducer)
     section_result = {

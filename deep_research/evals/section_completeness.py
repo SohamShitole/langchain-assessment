@@ -1,29 +1,25 @@
 """Section completeness eval: each planned section should be addressed."""
 
-import re
+from deep_research.evals.judge import judge_call
+
+RUBRIC = """Score 0-10: Does the report address every planned section from the outline?
+- For each section check: is the topic present, is it substantive (>2 sentences), or is it missing/superficial?
+- 10 = all sections covered substantively; 0 = most sections missing or trivial."""
 
 
 def eval_section_completeness(
     report_markdown: str, report_outline: list[dict]
 ) -> tuple[float, str]:
-    """Check whether each planned section is addressed in the report."""
-    if not report_markdown or not report_outline:
-        return 0.5, "No outline or report to compare"
+    """Check whether each planned section is addressed in the report (LLM-as-judge)."""
+    if not report_markdown:
+        return 0.5, "No report to compare"
+    if not report_outline:
+        return 0.5, "No outline to compare"
 
-    report_lower = report_markdown.lower()
-    section_ids = [s.get("id", "") for s in report_outline if s.get("id")]
-    section_titles = [s.get("title", "").lower() for s in report_outline if s.get("title")]
-
-    found = 0
-    for sid, title in zip(section_ids, section_titles):
-        if title and title in report_lower:
-            found += 1
-        elif sid and sid in report_lower:
-            found += 1
-        elif title and any(w in report_lower for w in title.split() if len(w) > 3):
-            found += 0.5
-
-    total = max(1, len(section_titles))
-    score = found / total
-    reason = f"Found {found}/{total} sections by title or ID"
-    return round(min(1.0, score), 2), reason
+    outline_str = "\n".join(
+        f"- {s.get('id', '')}: {s.get('title', '')}"
+        for s in report_outline[:20]
+    )
+    report_trunc = report_markdown[:4000] + ("..." if len(report_markdown) > 4000 else "")
+    context = f"PLANNED SECTIONS:\n{outline_str}\n\nREPORT:\n{report_trunc}"
+    return judge_call(RUBRIC, context)

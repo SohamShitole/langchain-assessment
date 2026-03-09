@@ -7,6 +7,7 @@ from langchain_core.runnables import RunnableConfig
 
 from deep_research.configuration import get_config
 from deep_research.prompts import SECTION_QUERY_FOLLOWUP_PROMPT, SECTION_QUERY_PROMPT
+from deep_research.research_logger import log_decision, log_node_end, log_node_start, log_prompt
 from deep_research.state import SectionWorkerState
 
 
@@ -16,6 +17,8 @@ def generate_section_queries(
 ) -> dict:
     """Generate 2-5 search queries for this section. On follow-up, target gaps."""
     section_task = state.get("section_task") or {}
+    section_id = section_task.get("id", "")
+    log_node_start("generate_section_queries", config, section_id=section_id)
     query = state.get("query", "") if isinstance(state.get("query"), str) else ""
     section_gaps = state.get("section_gaps") or []
     section_iteration = state.get("section_iteration") or 0
@@ -27,7 +30,8 @@ def generate_section_queries(
     llm = ChatOpenAI(model=model_name, temperature=0)
     task_str = json.dumps(section_task, indent=2)
 
-    if section_iteration > 0 and section_gaps:
+    is_followup = section_iteration > 0 and section_gaps
+    if is_followup:
         seen_urls = state.get("section_seen_urls") or set()
         seen_list = list(seen_urls)[:30]
         prompt = SECTION_QUERY_FOLLOWUP_PROMPT.format(
@@ -41,6 +45,7 @@ def generate_section_queries(
             query=query,
         )
 
+    log_prompt("generate_section_queries", prompt, model=model_name)
     raw = llm.invoke([{"role": "user", "content": prompt}])
     text = raw.content if hasattr(raw, "content") else str(raw)
 
@@ -64,6 +69,8 @@ def generate_section_queries(
     if not isinstance(queries, list):
         queries = [str(queries)] if queries else []
     queries = [str(q).strip() for q in queries if q][:max_queries]
+    log_decision("generate_section_queries", f"iteration={section_iteration + 1}, queries={len(queries)}", {"queries": queries[:5]})
+    log_node_end("generate_section_queries", {"section_queries": queries, "iteration": section_iteration + 1})
 
     return {
         "section_queries": queries,
