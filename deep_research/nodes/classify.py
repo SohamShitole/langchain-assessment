@@ -5,7 +5,7 @@ from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, Field
 
 from deep_research.configuration import DEFAULT_PLANNER_COMPLEX_MODEL, DEFAULT_PLANNER_SIMPLE_MODEL, get_config
-from deep_research.prompts import CLASSIFY_PROMPT
+from deep_research.prompts import CLASSIFY_PROMPT, get_prompt
 from deep_research.research_logger import log_decision, log_node_end, log_node_start, log_prompt
 from deep_research.state import ResearchState
 
@@ -28,11 +28,12 @@ def classify_complexity(
     cfg = get_config(config)
     model_name = cfg.get("classifier_model") or "gpt-4o-mini"
 
-    log_prompt("classify_complexity", query, model=model_name, system_content=CLASSIFY_PROMPT)
+    classify_prompt = get_prompt("classify", cfg, CLASSIFY_PROMPT)
+    log_prompt("classify_complexity", query, model=model_name, system_content=classify_prompt)
     llm = ChatOpenAI(model=model_name, temperature=0)
     structured = llm.with_structured_output(ClassifyOutput, method="function_calling")
     result = structured.invoke(
-        [{"role": "system", "content": CLASSIFY_PROMPT}, {"role": "user", "content": query}]
+        [{"role": "system", "content": classify_prompt}, {"role": "user", "content": query}]
     )
 
     planner = result.planner_model

@@ -6,6 +6,7 @@ import json
 import os
 import re
 import sys
+import uuid
 from datetime import datetime
 
 from dotenv import load_dotenv
@@ -13,10 +14,84 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from langchain_core.messages import HumanMessage
+from langchain_openai import ChatOpenAI
 
-from deep_research.configuration import load_config_file
+from deep_research.configuration import get_config, load_config_file
 from deep_research.graph import create_research_graph
+from deep_research.progress import display_plan, print_progress, print_section_count
 from deep_research.research_logger import close_log, init_log
+
+try:
+    from langgraph.checkpoint.memory import MemorySaver
+except ImportError:
+    MemorySaver = None
+
+try:
+    from langgraph.types import Command
+except ImportError:
+    Command = None
+
+
+def replan_with_feedback(
+    query: str,
+    feedback: str,
+    current_plan: dict,
+    planner_model: str,
+    config: dict,
+) -> dict:
+    """Revise the research plan using the original query, current plan, and user feedback.
+    The LLM interprets the feedback in context and returns an updated plan (state update dict)."""
+    from deep_research.prompts import RESEARCH_PLAN_EDIT_PROMPT, get_prompt
+
+    cfg = get_config(config)
+    template = get_prompt("research_plan_edit", cfg, RESEARCH_PLAN_EDIT_PROMPT)
+    current_plan_str = json.dumps(current_plan, indent=2)
+    prompt = template.format(
+        query=query,
+        current_plan=current_plan_str,
+        feedback=feedback,
+    )
+    llm = ChatOpenAI(model=planner_model, temperature=0)
+    raw = llm.invoke([{"role": "user", "content": prompt}])
+    text = raw.content if hasattr(raw, "content") else str(raw)
+    text = text.strip()
+    if "```" in text:
+        for block in ("json", ""):
+            start = f"```{block}"
+            if start in text:
+                i = text.find(start) + len(start)
+                j = text.find("```", i)
+                if j > i:
+                    text = text[i:j].strip()
+                    break
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        # Keep current plan on parse failure so we don't lose context
+        data = {
+            "objective": current_plan.get("objective", query),
+            "desired_structure": current_plan.get("desired_structure", [{"id": "s1", "title": "Overview", "description": query}]),
+            "section_names": current_plan.get("section_names", ["Overview"]),
+            "difficulty_areas": current_plan.get("difficulty_areas", []),
+            "section_descriptions": current_plan.get("section_descriptions", []),
+        }
+    research_plan = {
+        "objective": data.get("objective", query),
+        "desired_structure": data.get("desired_structure", []),
+        "section_names": data.get("section_names", []),
+        "difficulty_areas": data.get("difficulty_areas", []),
+        "section_descriptions": data.get("section_descriptions", []),
+    }
+    report_outline = research_plan.get("desired_structure", [])
+    trace = (config.get("research_trace") or {}).copy()
+    trace["planner_model_used"] = planner_model
+    trace["sections_created"] = len(report_outline)
+    trace["section_names"] = research_plan.get("section_names", [])
+    return {
+        "research_plan": research_plan,
+        "report_outline": report_outline,
+        "research_trace": trace,
+    }
 
 
 def main() -> None:
@@ -44,9 +119,9 @@ def main() -> None:
     parser.add_argument(
         "--search-provider",
         type=str,
-        choices=["gensee", "tavily"],
+        choices=["gensee", "gensee_deep", "tavily", "exa"],
         default=None,
-        help="Search provider: gensee or tavily (overrides config)",
+        help="Search provider: gensee, gensee_deep, tavily, or exa (overrides config)",
     )
     parser.add_argument(
         "--search-depth",
@@ -89,6 +164,22 @@ def main() -> None:
         help="Write process log (prompts, decisions, routing) to file. "
         "Use --log for auto path (alongside report), or --log path/to/file.log",
     )
+    parser.add_argument(
+        "--langsmith",
+        action="store_true",
+        help="Enable LangSmith tracing for this run",
+    )
+    parser.add_argument(
+        "--langsmith-project",
+        type=str,
+        default="deep-research-agent",
+        help="LangSmith project name (default: deep-research-agent)",
+    )
+    parser.add_argument(
+        "--auto",
+        action="store_true",
+        help="Skip research plan approval (non-interactive / CI)",
+    )
     args = parser.parse_args()
 
     query = args.query.strip()
@@ -111,7 +202,15 @@ def main() -> None:
     if args.max_iterations is not None:
         cfg["section_max_iterations"] = args.max_iterations
 
-    run_config = {"configurable": cfg}
+    thread_id = f"research-{datetime.now().strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:8]}"
+    run_config = {
+        "configurable": {
+            **cfg,
+            "thread_id": thread_id,
+        },
+        "run_name": f"deep-research: {query[:60]}",
+        "metadata": {"query": query},
+    }
 
     # Log file: same dir as report, same base name, .log extension
     log_path = None
@@ -128,10 +227,90 @@ def main() -> None:
         init_log(log_path)
         print(f"Log file: {log_path}")
 
-    graph = create_research_graph()
+    if args.langsmith:
+        os.environ["LANGSMITH_TRACING"] = "true"
+        os.environ["LANGSMITH_PROJECT"] = args.langsmith_project
+
+    # Build graph: with checkpointer for streaming + optional interrupt for plan approval
+    checkpointer = MemorySaver() if MemorySaver else None
+    interrupt_after = None if args.auto else (["create_research_plan"] if checkpointer else None)
+    graph = create_research_graph(checkpointer=checkpointer, interrupt_after=interrupt_after)
+
     initial_state = {"messages": [HumanMessage(content=query)]}
+
     try:
-        final = graph.invoke(initial_state, config=run_config)
+        if not checkpointer:
+            # No checkpointer: fall back to invoke (no progress, no plan approval)
+            final = graph.invoke(initial_state, config=run_config)
+        else:
+            # Phase 1: stream until end or interrupt
+            for chunk in graph.stream(
+                initial_state,
+                config=run_config,
+                stream_mode="updates",
+            ):
+                for node_name, data in chunk.items():
+                    if node_name == "decompose_into_sections" and data:
+                        section_tasks = data.get("section_tasks") or []
+                        if section_tasks:
+                            print_section_count(len(section_tasks))
+                    print_progress(node_name, data if isinstance(data, dict) else {})
+
+            # If we used interrupt, check whether we're paused for plan approval
+            state_snapshot = graph.get_state(run_config)
+            if interrupt_after and getattr(state_snapshot, "next", None) and state_snapshot.next:
+                # Interrupted: show plan and get approval
+                plan = (state_snapshot.values or {}).get("research_plan") or {}
+                while True:
+                    display_plan(plan)
+                    try:
+                        choice = input("Proceed with this plan? (Y / Edit / Cancel): ").strip().lower()
+                    except EOFError:
+                        choice = "y"
+                    if choice in ("y", "yes", ""):
+                        break
+                    if choice in ("c", "cancel"):
+                        print("Cancelled.", file=sys.stderr)
+                        sys.exit(0)
+                    if choice in ("e", "edit"):
+                        try:
+                            feedback = input("What would you like to change? ").strip()
+                        except EOFError:
+                            feedback = ""
+                        if not feedback:
+                            continue
+                        current = state_snapshot.values or {}
+                        planner_model = current.get("planner_model") or "gpt-4o-mini"
+                        current_plan = current.get("research_plan") or {}
+                        update = replan_with_feedback(
+                            query,
+                            feedback,
+                            current_plan,
+                            planner_model,
+                            {**run_config.get("configurable", {}), "research_trace": current.get("research_trace")},
+                        )
+                        graph.update_state(run_config, update, as_node="create_research_plan")
+                        plan = update.get("research_plan") or {}
+                        state_snapshot = graph.get_state(run_config)
+                        continue
+                    # Unrecognized: prompt again
+                    print("Please enter Y (proceed), Edit, or Cancel.", file=sys.stderr)
+
+                # Resume graph from interrupt
+                resume_cmd = Command(resume=True) if Command else True
+                for chunk in graph.stream(
+                    resume_cmd,
+                    config=run_config,
+                    stream_mode="updates",
+                ):
+                    for node_name, data in chunk.items():
+                        if node_name == "decompose_into_sections" and data:
+                            section_tasks = data.get("section_tasks") or []
+                            if section_tasks:
+                                print_section_count(len(section_tasks))
+                        print_progress(node_name, data if isinstance(data, dict) else {})
+
+            final = graph.get_state(run_config).values
     finally:
         if log_path:
             close_log()
@@ -144,6 +323,29 @@ def main() -> None:
         report = final.get("report_markdown") or ""
 
     report = report or "No report generated."
+
+    # Ensure report has a non-empty Sources section when we have sources in state
+    sources_from_state = final.get("sources") or []
+    if not sources_from_state:
+        evidence = final.get("writer_evidence_subset") or []
+        sources_from_state = [
+            {"index": i, "url": e.get("url", ""), "title": e.get("title", "")}
+            for i, e in enumerate(evidence, 1)
+        ]
+    if sources_from_state:
+        sources_block = "\n\n## Sources\n\n" + "\n".join(
+            f"[{s.get('index', i)}] {s.get('url', '')} — *{s.get('title', 'Untitled')}*"
+            for i, s in enumerate(sources_from_state, 1)
+        )
+        # If report has empty or placeholder Sources section, replace with real sources
+        if "## Sources" in report:
+            idx = report.find("## Sources")
+            rest = report[idx:].strip()
+            # Empty or only "Sources list:" with no [1] [2] lines
+            if not rest.replace("## Sources", "").replace("Sources list:", "").strip() or "[1]" not in rest:
+                report = report[:idx].rstrip() + sources_block
+        else:
+            report = report.rstrip() + sources_block
 
     # Create unique filename per run
     output_dir = args.output or "reports"

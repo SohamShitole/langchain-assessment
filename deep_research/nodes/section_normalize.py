@@ -7,7 +7,7 @@ from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, Field
 
 from deep_research.configuration import get_config
-from deep_research.prompts import SECTION_NORMALIZE_PROMPT
+from deep_research.prompts import SECTION_NORMALIZE_PROMPT, get_prompt
 from deep_research.research_logger import log_node_end, log_node_start, log_prompt
 from deep_research.state import SectionWorkerState
 
@@ -67,7 +67,7 @@ def section_normalize(
         indent=2,
     )
 
-    prompt = SECTION_NORMALIZE_PROMPT.format(
+    prompt = get_prompt("section_normalize", cfg, SECTION_NORMALIZE_PROMPT).format(
         section_id=section_id,
         section_goal=section_goal,
         raw_results=raw_str,

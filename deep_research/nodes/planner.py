@@ -9,7 +9,7 @@ from deep_research.configuration import (
     DEFAULT_PLANNER_COMPLEX_MODEL,
     get_config,
 )
-from deep_research.prompts import RESEARCH_PLAN_PROMPT
+from deep_research.prompts import RESEARCH_PLAN_PROMPT, get_prompt
 from deep_research.research_logger import log_decision, log_node_end, log_node_start, log_prompt
 from deep_research.state import ResearchState
 
@@ -24,7 +24,7 @@ def create_research_plan(
     planner_model = state.get("planner_model") or "gpt-4o-mini"
     cfg = get_config(config)
 
-    prompt = RESEARCH_PLAN_PROMPT.format(query=query)
+    prompt = get_prompt("research_plan", cfg, RESEARCH_PLAN_PROMPT).format(query=query)
     log_prompt("create_research_plan", prompt, model=planner_model)
     llm = ChatOpenAI(model=planner_model, temperature=0)
     raw = llm.invoke([{"role": "user", "content": prompt}])
@@ -96,14 +96,14 @@ def plan_and_generate_queries(
     llm = ChatOpenAI(model=planner_model, temperature=0)
 
     if iteration == 0:
-        prompt = PLANNER_INITIAL_PROMPT.format(query=query)
+        prompt = get_prompt("planner_initial", cfg, PLANNER_INITIAL_PROMPT).format(query=query)
         raw = llm.invoke([{"role": "user", "content": prompt}])
         text = raw.content if hasattr(raw, "content") else str(raw)
     else:
         outline_str = json.dumps(outline, indent=2)
         gaps_str = json.dumps(gaps, indent=2)
         seen_list = list(seen)[:50]
-        prompt = PLANNER_FOLLOWUP_PROMPT.format(
+        prompt = get_prompt("planner_followup", cfg, PLANNER_FOLLOWUP_PROMPT).format(
             query=query,
             report_outline=outline_str,
             knowledge_gaps=gaps_str,

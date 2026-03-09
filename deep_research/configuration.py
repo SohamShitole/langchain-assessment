@@ -6,11 +6,14 @@ from typing import Any
 
 from langchain_core.runnables import RunnableConfig
 
+# Path to the bundled report presets file (next to config.yaml in the project root)
+_PRESETS_FILE = Path(__file__).parent.parent / "report_presets.yaml"
+
 DEFAULT_MAX_ITERATIONS = 3
 DEFAULT_QUERIES_PER_ITERATION = 5
 DEFAULT_RESULTS_PER_QUERY = 5
 DEFAULT_WRITER_CONTEXT_MAX_ITEMS = 30
-DEFAULT_SEARCH_PROVIDER = "gensee"  # "gensee" | "tavily"
+DEFAULT_SEARCH_PROVIDER = "gensee"  # "gensee" | "gensee_deep" | "tavily" | "exa"
 DEFAULT_SEARCH_DEPTH = "advanced"  # "basic" (1 credit) or "advanced" (2 credits)
 DEFAULT_INCLUDE_RAW_CONTENT = True
 DEFAULT_FETCH_FULL_PAGES = True  # Fetch full page content for better reports
@@ -36,6 +39,16 @@ DEFAULT_SECTION_SUMMARY_MODEL = "gpt-4o-mini"
 DEFAULT_SECTION_COVERAGE_MODEL = "gpt-4o-mini"
 DEFAULT_CONFLICT_DETECT_MODEL = "gpt-4o-mini"
 DEFAULT_CONFLICT_RESOLVER_MODEL = "gpt-4o-mini"
+
+# Default ordered sections for the final report (configurable via report.structure in config.yaml)
+DEFAULT_REPORT_STRUCTURE = [
+    "Title",
+    "Executive Summary",
+    "Main Findings",
+    "Detailed Analysis by Section",
+    "Conclusion",
+    "Sources",
+]
 
 # Mapping from config.yaml nested keys to flat get_config keys
 _YAML_TO_FLAT = {
@@ -72,11 +85,49 @@ _YAML_TO_FLAT = {
     "section": {
         "max_iterations": "section_max_iterations",
         "queries_per_iteration": "section_queries_per_iteration",
+        "max_parallel": "max_parallel_sections",
     },
     "conflict": {
         "resolution_enabled": "conflict_resolution_enabled",
     },
 }
+
+
+def load_report_presets(path: str | Path | None = None) -> dict[int, list[str]]:
+    """Load report structure presets from a YAML file.
+
+    Returns a mapping of preset number -> list of section names.
+    Falls back to an empty dict if the file is missing or malformed.
+    """
+    if path is None:
+        path = _PRESETS_FILE
+    path = Path(path)
+    if not path.is_file():
+        return {}
+    try:
+        import yaml
+
+        with open(path, encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+    except Exception:
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    raw_presets = data.get("presets")
+    if not isinstance(raw_presets, dict):
+        return {}
+    result: dict[int, list[str]] = {}
+    for key, value in raw_presets.items():
+        try:
+            preset_num = int(key)
+        except (TypeError, ValueError):
+            continue
+        if not isinstance(value, dict):
+            continue
+        structure = value.get("structure")
+        if isinstance(structure, list) and all(isinstance(s, str) for s in structure):
+            result[preset_num] = structure
+    return result
 
 
 def load_config_file(path: str | Path | None = None) -> dict[str, Any]:
@@ -103,14 +154,53 @@ def load_config_file(path: str | Path | None = None) -> dict[str, Any]:
         for yaml_key, flat_key in mappings.items():
             if yaml_key in section_data:
                 flat[flat_key] = section_data[yaml_key]
+
+    # Prompt overrides: only include non-null string values
+    prompts_data = data.get("prompts")
+    if isinstance(prompts_data, dict):
+        flat["prompt_overrides"] = {
+            k: v for k, v in prompts_data.items() if v is not None and isinstance(v, str)
+        }
+
+    # Report structure: explicit list takes priority; preset number is the fallback.
+    report_data = data.get("report")
+    if isinstance(report_data, dict):
+        structure = report_data.get("structure")
+        if isinstance(structure, list) and all(isinstance(x, str) for x in structure):
+            # Explicit structure list wins unconditionally.
+            flat["report_structure"] = structure
+        else:
+            # Try to resolve a preset number when no explicit structure is given.
+            preset_num = report_data.get("preset")
+            if preset_num is not None:
+                try:
+                    preset_num = int(preset_num)
+                except (TypeError, ValueError):
+                    preset_num = None
+            if preset_num is not None:
+                presets = load_report_presets()
+                if preset_num in presets:
+                    flat["report_structure"] = presets[preset_num]
+                else:
+                    available = sorted(presets.keys())
+                    raise ValueError(
+                        f"report.preset {preset_num!r} not found in report_presets.yaml. "
+                        f"Available presets: {available}"
+                    )
+
     return flat
 
 
 def get_config(config: RunnableConfig | dict[str, Any] | None) -> dict[str, Any]:
     """Extract configuration from RunnableConfig, using defaults for missing values.
-    Merge order: hardcoded defaults < config.yaml < configurable overrides."""
+    Merge order: hardcoded defaults < config.yaml < configurable overrides.
+    If config is a dict with a 'configurable' key (RunnableConfig), use that; else treat config as the configurable dict."""
     config = config or {}
-    cfg = config.get("configurable") or {}
+    cfg = (
+        config.get("configurable")
+        if isinstance(config, dict) and "configurable" in config
+        else config
+    ) or {}
     return {
         "max_iterations": cfg.get("max_iterations", DEFAULT_MAX_ITERATIONS),
         "queries_per_iteration": cfg.get(
@@ -171,4 +261,6 @@ def get_config(config: RunnableConfig | dict[str, Any] | None) -> dict[str, Any]
         "conflict_resolver_model": cfg.get(
             "conflict_resolver_model", DEFAULT_CONFLICT_RESOLVER_MODEL
         ),
+        "prompt_overrides": cfg.get("prompt_overrides", {}),
+        "report_structure": cfg.get("report_structure", DEFAULT_REPORT_STRUCTURE),
     }

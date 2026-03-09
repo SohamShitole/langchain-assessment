@@ -8,8 +8,8 @@ from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, Field
 
 from deep_research.configuration import get_config
-from deep_research.nodes.search import _gensee_search, _tavily_search
-from deep_research.prompts import CONFLICT_DETECT_PROMPT, CONFLICT_RESOLVE_PROMPT
+from deep_research.nodes.search import _exa_search, _gensee_search, _tavily_search
+from deep_research.prompts import CONFLICT_ADJUDICATE_PROMPT, CONFLICT_DETECT_PROMPT, CONFLICT_RESOLVE_PROMPT, get_prompt
 from deep_research.research_logger import log_decision, log_node_end, log_node_start, log_prompt
 from deep_research.state import ResearchState
 
@@ -20,6 +20,25 @@ class ConflictOutput(BaseModel):
     conflicts: list[dict] = Field(default_factory=list)
     conflict_resolution_needed: bool = Field(default=False)
     reasoning: str = Field(default="")
+
+
+class ResolvedConflict(BaseModel):
+    """A single conflict after adjudication."""
+
+    conflicting_claims: list[str] = Field(default_factory=list)
+    source_urls: list[str] = Field(default_factory=list)
+    section_ids: list[str] = Field(default_factory=list)
+    severity: str = ""
+    resolved: bool = False
+    resolution_verdict: str = ""
+    winning_claim: str = ""
+    confidence: float = 0.5
+
+
+class AdjudicationOutput(BaseModel):
+    """Output from conflict adjudication."""
+
+    resolved_conflicts: list[ResolvedConflict] = Field(default_factory=list)
 
 
 def detect_global_gaps_and_conflicts(
@@ -43,7 +62,7 @@ def detect_global_gaps_and_conflicts(
         })
     summary_str = json.dumps(summary, indent=2)
 
-    prompt = CONFLICT_DETECT_PROMPT.format(merged_evidence_summary=summary_str)
+    prompt = get_prompt("conflict_detect", cfg, CONFLICT_DETECT_PROMPT).format(merged_evidence_summary=summary_str)
     log_prompt("detect_global_gaps_and_conflicts", prompt, model=model_name)
 
     llm = ChatOpenAI(model=model_name, temperature=0)
@@ -72,7 +91,7 @@ def conflict_resolution_research(
     state: ResearchState,
     config: RunnableConfig | None = None,
 ) -> dict:
-    """Run targeted search to resolve conflicts. Update merged_evidence."""
+    """Run targeted search to resolve conflicts, then adjudicate with LLM."""
     log_node_start("conflict_resolution_research", config)
     conflicts = state.get("global_conflicts") or []
     merged = list(state.get("merged_evidence") or [])
@@ -80,7 +99,7 @@ def conflict_resolution_research(
     model_name = cfg.get("conflict_resolver_model") or "gpt-4o-mini"
 
     conflicts_str = json.dumps(conflicts, indent=2)
-    prompt = CONFLICT_RESOLVE_PROMPT.format(conflicts=conflicts_str)
+    prompt = get_prompt("conflict_resolve", cfg, CONFLICT_RESOLVE_PROMPT).format(conflicts=conflicts_str)
     log_prompt("conflict_resolution_research", prompt, model=model_name)
 
     llm = ChatOpenAI(model=model_name, temperature=0)
@@ -116,15 +135,24 @@ def conflict_resolution_research(
 
     gensee_key = (os.environ.get("GENSEE_API_KEY") or "").strip()
     tavily_key = (os.environ.get("TAVILY_API_KEY") or "").strip()
+    exa_key = (os.environ.get("EXA_API_KEY") or "").strip()
     provider = (cfg.get("search_provider") or "gensee").lower()
     max_results = cfg.get("results_per_query") or 5
     search_depth = cfg.get("search_depth") or "advanced"
     include_raw_content = cfg.get("include_raw_content", True)
+    full_page_max_chars = cfg.get("full_page_max_chars", 20000)
 
-    if provider == "tavily" and tavily_key:
-        use_tavily = True
-    elif gensee_key:
-        use_tavily = False
+    use_exa = provider == "exa" and exa_key
+    use_tavily = provider == "tavily" and tavily_key
+    use_gensee = bool(gensee_key)
+    if use_exa:
+        use_tavily = use_gensee = False
+    elif use_tavily:
+        use_gensee = False
+    elif use_gensee:
+        pass
+    elif exa_key:
+        use_exa = True
     elif tavily_key:
         use_tavily = True
     else:
@@ -135,7 +163,9 @@ def conflict_resolution_research(
 
     for q in queries:
         try:
-            if use_tavily:
+            if use_exa:
+                results = _exa_search(q, max_results, search_type="auto", max_chars=full_page_max_chars)
+            elif use_tavily:
                 results = _tavily_search(
                     q, max_results,
                     search_depth=search_depth,
@@ -166,15 +196,32 @@ def conflict_resolution_research(
 
     merged = merged + new_items
 
-    log_node_end("conflict_resolution_research", {"queries_run": len(queries), "new_items_added": len(new_items)})
+    # --- LLM adjudication: weigh credibility, recency, primary-source status ---
+    new_evidence_summary = json.dumps(
+        [{"url": item.get("url", ""), "snippet": (item.get("snippet") or "")[:500]} for item in new_items],
+        indent=2,
+    )
+    adjudication_prompt = get_prompt("conflict_adjudicate", cfg, CONFLICT_ADJUDICATE_PROMPT).format(
+        conflicts=conflicts_str,
+        new_evidence=new_evidence_summary,
+    )
+    log_prompt("conflict_adjudication", adjudication_prompt, model=model_name)
 
-    # Mark conflicts as resolved (simplified - full resolution would need LLM)
-    updated_conflicts = []
-    for c in conflicts:
-        c = dict(c) if isinstance(c, dict) else {}
-        c["resolved"] = True
-        c["resolution_note"] = "Additional research conducted; prioritize primary sources in report."
-        updated_conflicts.append(c)
+    try:
+        adj_llm = ChatOpenAI(model=model_name, temperature=0)
+        adj_structured = adj_llm.with_structured_output(AdjudicationOutput, method="function_calling")
+        adj_result = adj_structured.invoke([{"role": "user", "content": adjudication_prompt}])
+        updated_conflicts = [rc.model_dump() for rc in adj_result.resolved_conflicts]
+    except Exception:
+        # Fallback: mark as unresolved with note
+        updated_conflicts = []
+        for c in conflicts:
+            c = dict(c) if isinstance(c, dict) else {}
+            c["resolved"] = False
+            c["resolution_verdict"] = "Adjudication failed; additional research was gathered."
+            updated_conflicts.append(c)
+
+    log_node_end("conflict_resolution_research", {"queries_run": len(queries), "new_items_added": len(new_items), "adjudicated": len(updated_conflicts)})
 
     return {
         "merged_evidence": merged,

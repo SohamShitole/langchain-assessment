@@ -4,7 +4,17 @@ Phase 2: Orchestrated research with section decomposition and parallel workers.
 Phase 1: create_research_graph_phase1() for legacy single-agent loop.
 """
 
+from typing import TYPE_CHECKING
+
 from langgraph.graph import START, StateGraph
+
+if TYPE_CHECKING:
+    from langchain_core.runnables import RunnableConfig
+
+try:
+    from langgraph.checkpoint.memory import MemorySaver
+except ImportError:
+    MemorySaver = None  # type: ignore[misc, assignment]
 
 from deep_research.nodes.classify import classify_complexity
 from deep_research.nodes.conflicts import (
@@ -27,12 +37,18 @@ from deep_research.section_graph import create_section_worker_graph
 from deep_research.state import ResearchState
 
 
-def create_research_graph():
+def create_research_graph(
+    checkpointer=None,
+    interrupt_after: list[str] | None = None,
+):
     """Build and compile the Phase 2 orchestrated research graph.
 
     Flow: ingest -> classify -> create_research_plan -> decompose
           -> [Send section_worker per section] -> merge -> detect_conflicts
           -> [optional conflict_resolution] -> prepare_writer -> write -> finalize
+
+    If checkpointer and interrupt_after are provided, the graph pauses after
+    the given node(s) for human-in-the-loop (e.g. plan approval).
     """
     builder = StateGraph(ResearchState)
 
@@ -72,7 +88,12 @@ def create_research_graph():
     builder.add_edge("write_report", "finalize_messages")
     builder.add_edge("finalize_messages", "__end__")
 
-    return builder.compile()
+    compile_kwargs: dict = {}
+    if checkpointer is not None:
+        compile_kwargs["checkpointer"] = checkpointer
+    if interrupt_after is not None:
+        compile_kwargs["interrupt_after"] = interrupt_after
+    return builder.compile(**compile_kwargs)
 
 
 def create_research_graph_phase1():
@@ -108,3 +129,16 @@ def create_research_graph_phase1():
     builder.add_edge("finalize_messages", "__end__")
 
     return builder.compile()
+
+
+def make_graph(config: "RunnableConfig | None" = None):
+    """Build the research graph for LangGraph CLI / LangSmith Studio.
+
+    Used by langgraph.json as the graph entry point. Accepts RunnableConfig
+    for optional runtime customization; nodes already read config via get_config().
+    Returns a compiled graph with in-memory checkpointer so Studio can manage
+    threads and visualize the flow.
+    """
+    del config  # Unused; nodes use get_config() from invocation config
+    checkpointer = MemorySaver() if MemorySaver else None
+    return create_research_graph(checkpointer=checkpointer, interrupt_after=None)

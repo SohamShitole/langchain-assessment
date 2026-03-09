@@ -7,6 +7,8 @@ from deep_research.routing import conflict_route, route, section_route
 from deep_research.state import ResearchState, SectionWorkerState
 from deep_research.nodes.decompose import dispatch_sections
 from deep_research.nodes.merge import merge_section_evidence
+from deep_research.configuration import load_config_file
+from deep_research.nodes.conflicts import ResolvedConflict, AdjudicationOutput
 from deep_research.evals import run_evals
 from langchain_core.messages import AIMessage, HumanMessage
 
@@ -169,7 +171,11 @@ def test_evals_run():
     assert "claim_support" in results
     assert "section_completeness" in results
     assert "source_quality" in results
-    assert len(results) == 6
+    assert "factual_accuracy" in results
+    assert "citation_relevance" in results
+    assert "synthesis_quality" in results
+    assert "tool_trajectory" in results
+    assert len(results) == 10
     for k, (score, reason) in results.items():
         assert 0 <= score <= 1
         assert isinstance(reason, str)
@@ -232,3 +238,46 @@ def test_sources_present():
     assert report
     has_sources = "source" in report.lower() or "http" in report.lower() or "[" in report
     assert has_sources or sources
+
+
+def test_config_yaml_planner_keys():
+    """config.yaml planner keys map correctly to flat config keys."""
+    flat = load_config_file()
+    assert "planner_simple_model" in flat, "planner_simple_model missing — config.yaml likely uses wrong key name"
+    assert "planner_complex_model" in flat, "planner_complex_model missing — config.yaml likely uses wrong key name"
+
+
+def test_dispatch_respects_max_parallel_config():
+    """dispatch_sections caps sections to max_parallel_sections from config."""
+    state: ResearchState = {
+        "section_tasks": [
+            {"id": f"s{i}", "title": f"S{i}", "goal": "x"} for i in range(1, 6)
+        ],
+        "global_seen_urls": set(),
+        "query": "test",
+        "section_max_iterations": 2,
+    }
+    config = {"configurable": {"max_parallel_sections": 2}}
+    sends = dispatch_sections(state, config)
+    assert len(sends) == 2
+    assert sends[0].arg["section_task"]["id"] == "s1"
+    assert sends[1].arg["section_task"]["id"] == "s2"
+
+
+def test_adjudication_models():
+    """ResolvedConflict and AdjudicationOutput have expected fields."""
+    rc = ResolvedConflict(
+        conflicting_claims=["A", "B"],
+        resolved=True,
+        resolution_verdict="A wins",
+        winning_claim="A",
+        confidence=0.9,
+    )
+    assert rc.resolved is True
+    assert rc.confidence == 0.9
+
+    ao = AdjudicationOutput(resolved_conflicts=[rc])
+    assert len(ao.resolved_conflicts) == 1
+    dumped = ao.resolved_conflicts[0].model_dump()
+    assert "resolution_verdict" in dumped
+    assert "winning_claim" in dumped

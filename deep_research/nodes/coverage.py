@@ -7,7 +7,7 @@ from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, Field
 
 from deep_research.configuration import get_config
-from deep_research.prompts import COVERAGE_PROMPT
+from deep_research.prompts import COVERAGE_PROMPT, get_prompt
 from deep_research.state import ResearchState
 
 
@@ -59,7 +59,7 @@ def assess_coverage(
     )
     outline_str = json.dumps(outline, indent=2)
 
-    prompt = COVERAGE_PROMPT.format(
+    prompt = get_prompt("coverage", cfg, COVERAGE_PROMPT).format(
         report_outline=outline_str,
         evidence_summary=evidence_summary,
     )

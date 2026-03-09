@@ -7,7 +7,7 @@ from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, Field, model_validator
 
 from deep_research.configuration import get_config
-from deep_research.prompts import SECTION_COVERAGE_PROMPT
+from deep_research.prompts import SECTION_COVERAGE_PROMPT, get_prompt
 from deep_research.research_logger import log_decision, log_node_end, log_node_start, log_prompt
 from deep_research.state import SectionWorkerState
 
@@ -57,7 +57,7 @@ def section_assess_coverage(
         indent=2,
     )
 
-    prompt = SECTION_COVERAGE_PROMPT.format(
+    prompt = get_prompt("section_coverage", cfg, SECTION_COVERAGE_PROMPT).format(
         section_task=task_str,
         success_criteria=criteria_str,
         count=len(evidence),

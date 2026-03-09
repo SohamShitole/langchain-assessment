@@ -29,6 +29,35 @@ def _strip_html(html: str) -> str:
     return text
 
 
+def _exa_get_contents(urls: list[str], max_chars: int = 5000) -> dict[str, str]:
+    """Extract content from URLs via Exa get_contents API. Returns url -> raw_content map."""
+    if not urls:
+        return {}
+    import os
+    api_key = (os.environ.get("EXA_API_KEY") or "").strip().strip('"').strip("'")
+    if not api_key:
+        return {}
+    try:
+        from exa_py import Exa
+    except ImportError:
+        return {}
+    exa = Exa(api_key=api_key)
+    try:
+        response = exa.get_contents(urls, text={"max_characters": max_chars})
+    except Exception:
+        return {}
+    results = getattr(response, "results", None) or []
+    out: dict[str, str] = {}
+    for r in results:
+        url = getattr(r, "url", None) or getattr(r, "id", "") or ""
+        if not url:
+            continue
+        raw = getattr(r, "text", None) or ""
+        if raw:
+            out[url] = raw[:max_chars]
+    return out
+
+
 def _tavily_extract(
     urls: list[str], extract_depth: str = "basic", max_chars: int = 5000
 ) -> dict[str, str]:
@@ -185,9 +214,12 @@ def prepare_writer_context(
                 needs_extract.append(url)
                 enriched.append(dict(item))
 
-        # Batch-extract missing URLs via Tavily Extract
+        # Batch-extract missing URLs: Tavily first, then Exa, then trafilatura per-URL
         if needs_extract:
             extracted = _tavily_extract(needs_extract, extract_depth=extract_depth, max_chars=max_chars)
+            still_needed = [u for u in needs_extract if not extracted.get(u)]
+            if still_needed:
+                extracted.update(_exa_get_contents(still_needed, max_chars))
             for item in enriched:
                 url = (item.get("url") or "").strip()
                 if url in extracted:

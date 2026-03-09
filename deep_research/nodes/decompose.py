@@ -7,7 +7,7 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.types import Send
 
 from deep_research.configuration import get_config
-from deep_research.prompts import DECOMPOSE_PROMPT
+from deep_research.prompts import DECOMPOSE_PROMPT, get_prompt
 from deep_research.research_logger import log_decision, log_node_end, log_node_start, log_prompt, log_route
 from deep_research.state import ResearchState
 
@@ -23,7 +23,7 @@ def decompose_into_sections(
     model_name = cfg.get("decompose_model") or "gpt-4o"
 
     plan_str = json.dumps(research_plan, indent=2)
-    prompt = DECOMPOSE_PROMPT.format(research_plan=plan_str)
+    prompt = get_prompt("decompose", cfg, DECOMPOSE_PROMPT).format(research_plan=plan_str)
     log_prompt("decompose_into_sections", prompt, model=model_name)
 
     llm = ChatOpenAI(model=model_name, temperature=0)
@@ -97,10 +97,11 @@ def decompose_into_sections(
     }
 
 
-def dispatch_sections(state: ResearchState) -> list[Send]:
+def dispatch_sections(state: ResearchState, config: RunnableConfig | None = None) -> list[Send]:
     """Return Send objects for parallel section workers (one per section task)."""
     section_tasks = state.get("section_tasks") or []
-    max_parallel = 6
+    cfg = get_config(config)
+    max_parallel = cfg.get("max_parallel_sections", 6)
     tasks = section_tasks[:max_parallel]
     log_route("decompose_into_sections", "section_worker", f"dispatching {len(tasks)} section workers: {[t.get('id') for t in tasks]}")
     global_seen = state.get("global_seen_urls") or set()

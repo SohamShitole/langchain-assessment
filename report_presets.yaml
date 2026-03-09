@@ -1,0 +1,134 @@
+# Report Structure Presets
+# ─────────────────────────────────────────────────────────────────────────────
+# Each preset is a named, numbered template for the report's top-level sections.
+# Reference a preset in config.yaml with:
+#
+#   report:
+#     preset: 2
+#
+# If you also supply a `structure` list under `report`, the explicit list takes
+# precedence over the preset number.
+# ─────────────────────────────────────────────────────────────────────────────
+
+presets:
+
+  1:
+    name: "Standard"
+    description: "General-purpose research report covering findings in depth."
+    structure:
+      - "Title"
+      - "Executive Summary"
+      - "Main Findings"
+      - "Detailed Analysis by Section"
+      - "Conclusion"
+      - "Sources"
+
+  2:
+    name: "Brief"
+    description: "Concise report for quick read-outs and summaries."
+    structure:
+      - "Title"
+      - "Summary"
+      - "Key Points"
+      - "Sources"
+
+  3:
+    name: "Academic"
+    description: "Structured for scholarly or technical research write-ups."
+    structure:
+      - "Title"
+      - "Abstract"
+      - "Introduction"
+      - "Background & Literature Review"
+      - "Methodology"
+      - "Results & Analysis"
+      - "Discussion"
+      - "Conclusion"
+      - "References"
+
+  4:
+    name: "Comparative"
+    description: "Side-by-side analysis of two or more subjects."
+    structure:
+      - "Title"
+      - "Overview"
+      - "Subject A Analysis"
+      - "Subject B Analysis"
+      - "Head-to-Head Comparison"
+      - "Verdict"
+      - "Sources"
+
+  5:
+    name: "Investigative"
+    description: "Deep-dive report surfacing causes, evidence, and implications."
+    structure:
+      - "Title"
+      - "Executive Summary"
+      - "Background & Context"
+      - "Key Evidence"
+      - "Root Cause Analysis"
+      - "Implications & Impact"
+      - "Recommendations"
+      - "Sources"
+
+  # ── Industry-style presets (OpenAI, Perplexity, consulting, IEEE, LangChain) ──
+
+  6:
+    name: "OpenAI-style (Deep Research)"
+    description: "Data-driven, citation-rich report; inline citations and source metadata (OpenAI Deep Research API style)."
+    structure:
+      - "Title"
+      - "Executive Summary"
+      - "Key Data & Figures"
+      - "Analysis by Theme"
+      - "Methodology & Data Sources"
+      - "Limitations & Caveats"
+      - "References"
+
+  7:
+    name: "Perplexity-style (BLUF)"
+    description: "Answer-first, evidence-next; concise units and inline citations (Perplexity-style)."
+    structure:
+      - "Title"
+      - "Key Takeaway / Answer"
+      - "Supporting Evidence"
+      - "Key Points"
+      - "Sources"
+
+  8:
+    name: "Consulting (McKinsey/BCG)"
+    description: "Situation–Complication–Resolution; findings and recommendations (consulting standard)."
+    structure:
+      - "Title"
+      - "Executive Summary"
+      - "Situation & Context"
+      - "Complication (Problem or Opportunity)"
+      - "Key Findings"
+      - "Recommendations & Next Steps"
+      - "Appendix"
+      - "Sources"
+
+  9:
+    name: "IEEE / Technical Report"
+    description: "Standard technical report layout (IEEE/ACM-style)."
+    structure:
+      - "Title"
+      - "Abstract"
+      - "Introduction"
+      - "Methods"
+      - "Results and Discussion"
+      - "Conclusion"
+      - "Acknowledgments"
+      - "References"
+      - "Appendix"
+
+  10:
+    name: "LangChain-style (Docs)"
+    description: "Overview-first, then concepts and how-to (documentation-style)."
+    structure:
+      - "Title"
+      - "Overview"
+      - "Key Concepts"
+      - "How It Works / Use Cases"
+      - "Examples"
+      - "References"

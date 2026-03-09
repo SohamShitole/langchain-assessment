@@ -5,8 +5,13 @@ import json
 from langchain_openai import ChatOpenAI
 from langchain_core.runnables import RunnableConfig
 
-from deep_research.configuration import get_config
-from deep_research.prompts import ENHANCED_WRITER_PROMPT, REPORT_ASSEMBLY_PROMPT, WRITER_PROMPT
+from deep_research.configuration import DEFAULT_REPORT_STRUCTURE, get_config
+from deep_research.prompts import (
+    ENHANCED_WRITER_PROMPT,
+    REPORT_ASSEMBLY_PROMPT,
+    WRITER_PROMPT,
+    get_prompt,
+)
 from deep_research.research_logger import log_node_end, log_node_start, log_prompt
 from deep_research.state import ResearchState
 
@@ -25,6 +30,17 @@ def write_report(state: ResearchState, config: RunnableConfig | None = None) -> 
     log_node_start("write_report", config)
     outline = state.get("report_outline") or []
     evidence = state.get("writer_evidence_subset") or []
+    # Fallback: if writer got no evidence (e.g. state merge quirk with checkpointer), use merged_evidence
+    if not evidence:
+        merged = state.get("merged_evidence") or []
+        evidence = [
+            {
+                "url": m.get("url", ""),
+                "title": m.get("title", ""),
+                "snippet": m.get("snippet", ""),
+            }
+            for m in merged
+        ]
     gaps = state.get("knowledge_gaps") or []
     coverage_status = state.get("coverage_status") or "insufficient"
     max_iterations = state.get("max_iterations") or 3
@@ -34,6 +50,9 @@ def write_report(state: ResearchState, config: RunnableConfig | None = None) -> 
     global_conflicts = state.get("global_conflicts") or []
     cfg = get_config(config)
     model_name = cfg.get("writer_model") or "gpt-4o"
+    report_structure = " > ".join(
+        cfg.get("report_structure") or DEFAULT_REPORT_STRUCTURE
+    )
 
     outline_str = json.dumps(outline, indent=2)
 
@@ -42,19 +61,16 @@ def write_report(state: ResearchState, config: RunnableConfig | None = None) -> 
         drafts_str = "\n\n---\n\n".join(
             f"### Section: {d['title']}\n\n{d['draft']}" for d in section_drafts
         )
-        conflicts_str = json.dumps(global_conflicts, indent=2)
-        conflicts_and_caveats = (
-            f"Conflicts: {conflicts_str}\n\nGaps: {json.dumps(gaps, indent=2)}"
-        )
         sources_str = "\n".join(
             f"[{i + 1}] {e.get('url', '')} — *{e.get('title', 'Untitled')}*"
             for i, e in enumerate(evidence)
         )
-        prompt = REPORT_ASSEMBLY_PROMPT.format(
+        template = get_prompt("report_assembly", cfg, REPORT_ASSEMBLY_PROMPT)
+        prompt = template.format(
             report_outline=outline_str,
             section_drafts=drafts_str,
-            conflicts_and_caveats=conflicts_and_caveats,
             sources_list=sources_str,
+            report_structure=report_structure,
         )
     elif section_summaries:
         # ── Enhanced mode (legacy Phase 2, no section drafts) ──
@@ -63,15 +79,12 @@ def write_report(state: ResearchState, config: RunnableConfig | None = None) -> 
             indent=2,
         )
         summaries_str = json.dumps(section_summaries, indent=2)
-        conflicts_str = json.dumps(global_conflicts, indent=2)
-        conflicts_and_caveats = (
-            f"Conflicts: {conflicts_str}\n\nGaps: {json.dumps(gaps, indent=2)}"
-        )
-        prompt = ENHANCED_WRITER_PROMPT.format(
+        template = get_prompt("enhanced_writer", cfg, ENHANCED_WRITER_PROMPT)
+        prompt = template.format(
             report_outline=outline_str,
             section_summaries=summaries_str,
             writer_evidence=writer_evidence_str,
-            conflicts_and_caveats=conflicts_and_caveats,
+            report_structure=report_structure,
         )
     else:
         # ── Basic mode (Phase 1) ──
@@ -80,14 +93,14 @@ def write_report(state: ResearchState, config: RunnableConfig | None = None) -> 
             indent=2,
         )
         gaps_str = json.dumps(gaps, indent=2)
-        prompt = WRITER_PROMPT.format(
+        template = get_prompt("writer", cfg, WRITER_PROMPT)
+        prompt = template.format(
             report_outline=outline_str,
             writer_evidence=writer_evidence_str,
             knowledge_gaps=gaps_str,
             coverage_status=coverage_status,
+            report_structure=report_structure,
         )
-        if iteration >= max_iterations and coverage_status == "insufficient":
-            prompt += "\n\nNote: The iteration budget was exhausted. Include a clear Caveats section noting that coverage may be incomplete."
 
     log_prompt("write_report", prompt, model=model_name)
     llm = ChatOpenAI(model=model_name, temperature=0)

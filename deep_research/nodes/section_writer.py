@@ -11,7 +11,7 @@ from langchain_openai import ChatOpenAI
 from langchain_core.runnables import RunnableConfig
 
 from deep_research.configuration import get_config
-from deep_research.prompts import SECTION_DRAFT_PROMPT
+from deep_research.prompts import SECTION_DRAFT_PROMPT, get_prompt
 from deep_research.research_logger import log_node_end, log_node_start, log_prompt
 from deep_research.state import ResearchState
 
@@ -73,7 +73,7 @@ def write_sections(
         ]
         evidence_str = json.dumps(evidence_items, indent=2)
 
-        prompt = SECTION_DRAFT_PROMPT.format(
+        prompt = get_prompt("section_draft", cfg, SECTION_DRAFT_PROMPT).format(
             section_title=title,
             section_description=description,
             section_summary=summary_text,

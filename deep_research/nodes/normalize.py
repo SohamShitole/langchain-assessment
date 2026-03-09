@@ -7,7 +7,7 @@ from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, Field
 
 from deep_research.configuration import get_config
-from deep_research.prompts import NORMALIZE_PROMPT
+from deep_research.prompts import NORMALIZE_PROMPT, get_prompt
 from deep_research.state import ResearchState
 
 
@@ -60,7 +60,7 @@ def normalize_and_map_evidence(
     )
     outline_str = json.dumps(outline, indent=2)
 
-    prompt = NORMALIZE_PROMPT.format(
+    prompt = get_prompt("normalize", cfg, NORMALIZE_PROMPT).format(
         report_outline=outline_str,
         raw_results=raw_str,
         iteration=iteration,

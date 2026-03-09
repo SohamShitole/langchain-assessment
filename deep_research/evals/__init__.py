@@ -10,6 +10,10 @@ from deep_research.evals.source_quality import eval_source_quality
 from deep_research.evals.conflict_handling import eval_conflict_handling
 from deep_research.evals.stop_decision import eval_stop_decision
 from deep_research.evals.comparative_breadth import eval_comparative_breadth
+from deep_research.evals.factual_accuracy import eval_factual_accuracy
+from deep_research.evals.citation_relevance import eval_citation_relevance
+from deep_research.evals.synthesis_quality import eval_synthesis_quality
+from deep_research.evals.tool_trajectory import eval_tool_trajectory
 
 
 def run_evals(
@@ -43,5 +47,17 @@ def run_evals(
 
     score, reason = eval_comparative_breadth(report_markdown, query)
     results["comparative_breadth"] = (score, reason)
+
+    score, reason = eval_factual_accuracy(report_markdown, writer_evidence)
+    results["factual_accuracy"] = (score, reason)
+
+    score, reason = eval_citation_relevance(report_markdown, writer_evidence)
+    results["citation_relevance"] = (score, reason)
+
+    score, reason = eval_synthesis_quality(report_markdown, query, report_outline)
+    results["synthesis_quality"] = (score, reason)
+
+    score, reason = eval_tool_trajectory(research_trace, section_results)
+    results["tool_trajectory"] = (score, reason)
 
     return results

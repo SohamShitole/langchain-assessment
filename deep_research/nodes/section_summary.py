@@ -6,7 +6,7 @@ from langchain_openai import ChatOpenAI
 from langchain_core.runnables import RunnableConfig
 
 from deep_research.configuration import get_config
-from deep_research.prompts import SECTION_SUMMARY_PROMPT
+from deep_research.prompts import SECTION_SUMMARY_PROMPT, get_prompt
 from deep_research.research_logger import log_node_end, log_node_start, log_prompt
 from deep_research.state import SectionWorkerState
 
@@ -27,11 +27,19 @@ def generate_section_summary(
     section_title = section_task.get("title", "")
     section_goal = section_task.get("goal", "")
 
-    prompt = SECTION_SUMMARY_PROMPT.format(
+    # Build top-N evidence snippets so the summary is grounded in actual content
+    top_n = sorted(evidence, key=lambda e: e.get("relevance_score", 0), reverse=True)[:10]
+    top_evidence = "\n\n".join(
+        f"[{i+1}] ({e.get('url', 'N/A')}): {(e.get('snippet') or '')[:500]}"
+        for i, e in enumerate(top_n)
+    )
+
+    prompt = get_prompt("section_summary", cfg, SECTION_SUMMARY_PROMPT).format(
         section_id=section_id,
         section_title=section_title,
         section_goal=section_goal,
         evidence_count=len(evidence),
+        top_evidence=top_evidence,
     )
     log_prompt("generate_section_summary", prompt, model=model_name)
 
@@ -73,6 +81,7 @@ def generate_section_summary(
     # Build SectionResult for parent graph (section_results has operator.add reducer)
     section_result = {
         "section_id": section_id,
+        "section_title": section_title,
         "evidence": evidence,
         "coverage_score": state.get("section_coverage") or 0.0,
         "gaps": state.get("section_gaps") or [],

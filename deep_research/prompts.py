@@ -1,5 +1,12 @@
 """Prompt templates for the research graph."""
 
+
+def get_prompt(name: str, cfg: dict, fallback: str) -> str:
+    """Return override from config if present, otherwise the fallback default prompt."""
+    overrides = cfg.get("prompt_overrides") or {}
+    return overrides.get(name) or fallback
+
+
 CLASSIFY_PROMPT = """You are a research query analyst. Classify the research query by complexity.
 
 Consider:
@@ -8,7 +15,7 @@ Consider:
 - complex: broad comparison, many entities, ambiguity, or likely multi-section decomposition
 
 Respond with JSON: {"complexity": "simple"|"moderate"|"complex", "planner_model": "gpt-4o-mini"|"gpt-4o", "reasoning": "short explanation"}
-Use gpt-4o-mini for simple and moderate. Use gpt-4o only for complex queries."""
+Use gpt-5-nano for simple and moderate. Use gpt-5.2 only for complex queries."""
 
 PLANNER_INITIAL_PROMPT = """You are a research planner. The user wants a report on:
 
@@ -81,7 +88,7 @@ Report outline:
 Evidence to use (ONLY use these - do not make up facts):
 {writer_evidence}
 
-Knowledge gaps / caveats (mention these where evidence is weak):
+Knowledge gaps (for context; do not add a caveats section):
 {knowledge_gaps}
 
 Coverage status: {coverage_status}
@@ -90,9 +97,8 @@ Requirements:
 - Use inline citations: [1], [2], etc. corresponding to the numbered evidence
 - Do not make claims not supported by the evidence
 - Mention uncertainty where evidence is weak or incomplete
-- Structure: Title, Executive Summary, Main Findings, Detailed Analysis by Section, Caveats/Remaining Gaps, Sources
+- Structure: {report_structure}
 - Use section titles only in headings (e.g. "## Introduction" or "## Applications and Use Cases"); do NOT include internal IDs like s1, s2, s3
-- If coverage_status is insufficient or iteration budget was exhausted, include a clear Caveats section
 - End with a Sources section listing each citation with URL and title
 
 Output the report markdown only. Do not wrap in code blocks."""
@@ -119,6 +125,32 @@ Return JSON:
   "difficulty_areas": ["...", ...],
   "section_descriptions": [{{"section_id": "s1", "must_answer": ["..."]}}, ...]
 }}"""
+
+RESEARCH_PLAN_EDIT_PROMPT = """You are a research planner. The user originally asked for a report on:
+
+**Original query:** {query}
+
+We proposed this research plan:
+
+**Current plan:**
+{current_plan}
+
+The user requested changes:
+
+**User feedback:** {feedback}
+
+Your task: Interpret the user's feedback in the context of their original query. Understand what they want changed (e.g. focus on different tools, add a section, remove a topic, compare specific things) and revise the plan accordingly. The revised plan must still align with the original query's intent; do not replace the topic with something unrelated—incorporate the user's edits so the plan better matches what they asked for.
+
+Output a revised research plan in the same JSON format:
+{{
+  "objective": "...",
+  "desired_structure": [{{"id": "s1", "title": "...", "description": "..."}}, ...],
+  "section_names": ["...", ...],
+  "difficulty_areas": ["...", ...],
+  "section_descriptions": [{{"section_id": "s1", "must_answer": ["..."]}}, ...]
+}}
+
+Return only the JSON. Do NOT generate search queries."""
 
 DECOMPOSE_PROMPT = """You are a research decomposer. Convert the research plan into independent section tasks.
 
@@ -216,6 +248,9 @@ Goal: {section_goal}
 
 Evidence found: {evidence_count} items
 
+Top evidence snippets:
+{top_evidence}
+
 Write:
 1. summary_text: 4-6 sentences summarizing key findings for this section. Include 1-2 illustrative examples or concrete findings when available. Elaborate enough that the writer has a strong backbone to expand from.
 2. strongest_sources: list of 2-5 URLs that are the best sources
@@ -272,6 +307,36 @@ Queries should help find authoritative information to resolve the contradictions
 
 Return JSON: {{"search_queries": ["query 1", "query 2", ...]}}"""
 
+CONFLICT_ADJUDICATE_PROMPT = """You are a research conflict adjudicator. Determine which claims are best supported.
+
+Conflicts:
+{conflicts}
+
+Additional evidence gathered to resolve them:
+{new_evidence}
+
+For each conflict:
+1. Weigh source credibility (credibility_score, source_type: official > government > press > blog > aggregator)
+2. Weigh recency (prefer recent over dated)
+3. Weigh primary-source status (prefer primary over secondary)
+4. Determine which claim is better supported or if the conflict remains unresolved
+
+Return JSON:
+{{
+  "resolved_conflicts": [
+    {{
+      "conflicting_claims": ["claim A", "claim B"],
+      "source_urls": ["url1", "url2"],
+      "section_ids": ["s1"],
+      "severity": "high",
+      "resolved": true,
+      "resolution_verdict": "Claim A is better supported because...",
+      "winning_claim": "the specific claim text",
+      "confidence": 0.85
+    }}
+  ]
+}}"""
+
 ENHANCED_WRITER_PROMPT = """You are a research report writer. Synthesize a grounded, well-structured markdown report.
 
 Report structure (from research plan):
@@ -283,17 +348,13 @@ Section summaries (use these as the backbone):
 Evidence to cite (ONLY use these - do not make up facts):
 {writer_evidence}
 
-Unresolved conflicts or caveats (surface these honestly in the report):
-{conflicts_and_caveats}
-
 Requirements:
 - Use inline citations: [1], [2], etc. corresponding to the numbered evidence
 - Synthesize from section summaries; do not ignore them
-- Surface contradictions explicitly - do not silently flatten conflicting evidence
+- Surface contradictions explicitly in the narrative where relevant - do not silently flatten conflicting evidence
 - Prefer primary sources in citations when available
-- Structure: Title, Executive Summary, Main Findings, Detailed Analysis by Section, Caveats/Conflicts, Sources
+- Structure: {report_structure}
 - Use section titles only in headings (e.g. "## Introduction" or "## Applications"); do NOT include internal IDs like s1, s2, s3
-- Include a Caveats section for unresolved questions and conflicts
 - End with a Sources section listing each citation with URL and title
 
 Output the report markdown only. Do not wrap in code blocks."""
@@ -319,7 +380,6 @@ Requirements:
 - Explain concepts clearly; assume a reader who is informed but not an expert in this exact topic
 - Include concrete examples, data points, or case studies from the evidence when available
 - Explain WHY things matter, not just WHAT they are
-- Mention unresolved questions or limitations where relevant
 - Do NOT make claims unsupported by the evidence
 - Do NOT wrap output in code blocks
 
@@ -333,20 +393,11 @@ Report structure:
 Pre-written section drafts (each already contains inline citations):
 {section_drafts}
 
-Conflicts and caveats to surface:
-{conflicts_and_caveats}
-
 Sources list:
 {sources_list}
 
 Requirements:
-- Produce a complete markdown report with this structure:
-  1. Title (# heading)
-  2. Executive Summary — synthesize the key takeaways across ALL sections (2-3 paragraphs, with citations)
-  3. Main Findings — 5-7 numbered key findings that cut across sections, each with citations
-  4. Detailed Analysis by Section — include each section draft under its own ## heading. You may lightly edit for flow, transitions, and consistency, but preserve ALL citations and substantive content. Do NOT cut detail.
-  5. Caveats/Conflicts (Unresolved Questions) — surface conflicts, unresolved questions, and limitations from the evidence
-  6. Sources — reproduce the sources list provided below
+- Produce a complete markdown report with this structure: {report_structure}
 - Preserve ALL inline citations [N] from the section drafts exactly as they appear
 - Do NOT invent new claims or citations
 - Use section titles only in headings; do NOT include internal IDs like s1, s2, s3

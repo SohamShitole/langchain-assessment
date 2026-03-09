@@ -3,25 +3,25 @@
 
 # ── Search Settings ──
 search:
-  provider: "tavily"              # "tavily" or "gensee"
-  max_iterations: 3               # max research loop iterations
-  queries_per_iteration: 30        # search queries generated per iteration
-  results_per_query: 5            # results returned per query
-  search_depth: "advanced"        # "basic" (1 credit) or "advanced" (2 credits)
-  include_raw_content: true       # fetch full page content with search results
+  provider: "tavily" # "exa", "tavily", "gensee", or "gensee_deep"
+  max_iterations: 3 # max research loop iterations
+  queries_per_iteration: 30 # search queries generated per iteration
+  results_per_query: 5 # results returned per query
+  search_depth: "advanced" # "basic" (1 credit) or "advanced" (2 credits)
+  include_raw_content: true # fetch full page content with search results
 
 # ── Extract / Enrichment Settings ──
 extract:
-  fetch_full_pages: true          # enrich evidence with full page content
-  extract_depth: "advanced"          # "basic" or "advanced" (for tables/structured data)
-  full_page_max_chars: 30000       # max chars per enriched page
+  fetch_full_pages: true # enrich evidence with full page content
+  extract_depth: "advanced" # "basic" or "advanced" (for tables/structured data)
+  full_page_max_chars: 30000 # max chars per enriched page
 
 # ── Model Settings ──
 models:
   # ---------- Phase 1 ----------
   classifier: "gpt-5-nano"
-  planner: "gpt-5-mini"
-  planner_strong: "gpt-5.2"
+  planner_simple: "gpt-5-mini"
+  planner_complex: "gpt-5.2"
   normalizer: "gpt-5-nano"
   coverage: "gpt-5-nano"
   writer: "gpt-5.2"
@@ -36,13 +36,53 @@ models:
 
 # ── Writer Settings ──
 writer:
-  context_max_items: 100           # max evidence items passed to writer
+  context_max_items: 100 # max evidence items passed to writer
 
 # ── Section Worker Settings (Phase 2) ──
 section:
-  max_iterations: 5               # max iterations per section worker
-  queries_per_iteration: 5        # search queries per section iteration
+  max_iterations: 5 # max iterations per section worker
+  queries_per_iteration: 5 # search queries per section iteration
+  max_parallel: 10 # max sections to research in parallel
 
 # ── Conflict Resolution (Phase 2) ──
 conflict:
-  resolution_enabled: true        # enable conflict resolution research
+  resolution_enabled: true # enable conflict resolution research
+
+# ── Report Structure ──
+# Choose how the final report is structured. Two options:
+#
+#   Option A — preset number (defined in report_presets.yaml):
+#     1  Standard           General-purpose report with findings and analysis
+#     2  Brief              Concise summary for quick read-outs
+#     3  Academic           Scholarly write-up (abstract → references)
+#     4  Comparative        Side-by-side analysis of two subjects
+#     5  Investigative      Deep-dive with root-cause analysis and recommendations
+#     6  OpenAI-style       Data-driven, citation-rich (Deep Research API style)
+#     7  Perplexity-style   Answer-first BLUF, supporting evidence, sources
+#     8  Consulting         McKinsey/BCG: situation–complication–resolution
+#     9  IEEE/Technical     Standard technical report (abstract → appendix)
+#    10  LangChain-style    Docs: overview, concepts, how-to, examples
+#
+#   Option B — explicit section list (overrides preset when both are set):
+#     structure:
+#       - "Title"
+#       - "My Custom Section"
+#       - "Sources"
+#
+# Only one of `preset` or `structure` needs to be set.
+report:
+  preset: 1 # Use preset 1 (Standard). Change to 2–10 for other layouts.
+  # structure:                # Uncomment and fill to define a fully custom structure.
+  #   - "Title"
+  #   - "Executive Summary"
+  #   - "Main Findings"
+  #   - "Detailed Analysis by Section"
+  #   - "Conclusion"
+  #   - "Sources"
+
+# ── Prompt Overrides (optional) ──
+# Set any key to a full replacement string to override the default prompt. Leave null to use built-in.
+# Keys: writer, enhanced_writer, report_assembly, research_plan, classify, planner_initial, planner_followup,
+#       normalize, coverage, decompose, section_query, section_query_followup, section_normalize,
+#       section_coverage, section_summary, section_draft, conflict_detect, conflict_resolve
+prompts: {}

@@ -6,7 +6,7 @@ from langchain_openai import ChatOpenAI
 from langchain_core.runnables import RunnableConfig
 
 from deep_research.configuration import get_config
-from deep_research.prompts import SECTION_QUERY_FOLLOWUP_PROMPT, SECTION_QUERY_PROMPT
+from deep_research.prompts import SECTION_QUERY_FOLLOWUP_PROMPT, SECTION_QUERY_PROMPT, get_prompt
 from deep_research.research_logger import log_decision, log_node_end, log_node_start, log_prompt
 from deep_research.state import SectionWorkerState
 
@@ -34,13 +34,13 @@ def generate_section_queries(
     if is_followup:
         seen_urls = state.get("section_seen_urls") or set()
         seen_list = list(seen_urls)[:30]
-        prompt = SECTION_QUERY_FOLLOWUP_PROMPT.format(
+        prompt = get_prompt("section_query_followup", cfg, SECTION_QUERY_FOLLOWUP_PROMPT).format(
             section_task=task_str,
             section_gaps=json.dumps(section_gaps, indent=2),
             seen_urls=", ".join(seen_list) if seen_list else "(none yet)",
         )
     else:
-        prompt = SECTION_QUERY_PROMPT.format(
+        prompt = get_prompt("section_query", cfg, SECTION_QUERY_PROMPT).format(
             section_task=task_str,
             query=query,
         )
