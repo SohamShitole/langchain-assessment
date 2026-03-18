@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Deep Research Agent — Presentation</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #0d0f14;
+      --surface: #161a22;
+      --border: #2a3140;
+      --text: #e6e9f0;
+      --text-muted: #8b92a6;
+      --accent: #5b8def;
+      --accent-dim: #3d6bc7;
+      --success: #4ade80;
+      --warning: #fbbf24;
+      --code-bg: #1a1e28;
+      --radius: 10px;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      font-family: 'DM Sans', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.55;
+      font-size: 17px;
+    }
+
+    .slide {
+      min-height: 100vh;
+      padding: 2.5rem 4rem 5rem;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      max-width: 1100px;
+      margin: 0 auto;
+    }
+    .slide:first-of-type { padding-top: 4rem; }
+    .slide h1 {
+      font-size: 2.25rem;
+      font-weight: 700;
+      margin: 0 0 0.5rem;
+      color: var(--text);
+      letter-spacing: -0.02em;
+    }
+    .slide h2 {
+      font-size: 1.5rem;
+      font-weight: 600;
+      margin: 2rem 0 0.75rem;
+      color: var(--accent);
+    }
+    .slide h3 {
+      font-size: 1.15rem;
+      font-weight: 600;
+      margin: 1.25rem 0 0.5rem;
+      color: var(--text);
+    }
+    .slide p { margin: 0.5rem 0; color: var(--text-muted); }
+    .slide ul, .slide ol {
+      margin: 0.5rem 0 1rem;
+      padding-left: 1.5rem;
+      color: var(--text-muted);
+    }
+    .slide li { margin: 0.35rem 0; }
+    .slide strong { color: var(--text); }
+    code, .mono {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.9em;
+      background: var(--code-bg);
+      padding: 0.15em 0.4em;
+      border-radius: 4px;
+      color: var(--accent);
+    }
+    pre {
+      background: var(--code-bg);
+      padding: 1rem 1.25rem;
+      border-radius: var(--radius);
+      overflow-x: auto;
+      margin: 0.75rem 0;
+      font-size: 0.85rem;
+      border: 1px solid var(--border);
+    }
+    pre code { background: none; padding: 0; color: var(--text); }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 1rem 0;
+      font-size: 0.95rem;
+    }
+    th, td {
+      text-align: left;
+      padding: 0.5rem 0.75rem;
+      border-bottom: 1px solid var(--border);
+    }
+    th { color: var(--accent); font-weight: 600; }
+    td { color: var(--text-muted); }
+    .one-liner {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.25rem 1.5rem;
+      margin: 1rem 0;
+      font-size: 1.05rem;
+      color: var(--text);
+    }
+    .flow-box {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1rem 1.25rem;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.8rem;
+      white-space: pre;
+      overflow-x: auto;
+      margin: 0.75rem 0;
+    }
+    .nav {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: 56px;
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 1rem;
+      z-index: 100;
+    }
+    .nav button {
+      font-family: inherit;
+      font-size: 0.9rem;
+      padding: 0.5rem 1rem;
+      background: var(--accent);
+      color: var(--bg);
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: 500;
+    }
+    .nav button:hover { background: var(--accent-dim); color: white; }
+    .nav button.secondary {
+      background: var(--border);
+      color: var(--text);
+    }
+    .nav .slide-num {
+      font-size: 0.9rem;
+      color: var(--text-muted);
+      min-width: 5rem;
+      text-align: center;
+    }
+    .slide-label {
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--accent);
+      margin-bottom: 0.25rem;
+    }
+    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; }
+    @media (max-width: 900px) { .two-col { grid-template-columns: 1fr; } }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.25rem;
+      margin: 0.5rem 0;
+    }
+    .card h4 { margin: 0 0 0.5rem; font-size: 1rem; color: var(--text); }
+    .card p { margin: 0; font-size: 0.95rem; }
+    blockquote {
+      border-left: 3px solid var(--accent);
+      margin: 1rem 0;
+      padding-left: 1rem;
+      color: var(--text-muted);
+      font-style: italic;
+    }
+    .badge { display: inline-block; background: var(--accent-dim); color: white; padding: 0.2em 0.5em; border-radius: 4px; font-size: 0.8rem; }
+  </style>
+</head>
+<body>
+
+  <!-- SLIDE 1: Title -->
+  <section class="slide" id="s1">
+    <div class="slide-label">Presentation</div>
+    <h1>Deep Research Agent</h1>
+    <p style="font-size: 1.2rem; color: var(--text-muted); margin-top: 0.5rem;">Graph-based research workflow with LangGraph</p>
+    <p style="margin-top: 1.5rem;">Section-oriented architecture: plan → parallel section workers → merge → conflict handling → writer → report</p>
+    <p><strong>Default:</strong> Phase 2 (section workers). Phase 1 (single-agent loop) kept for comparison and debugging.</p>
+  </section>
+
+  <!-- SLIDE 2: One-liner & What it does -->
+  <section class="slide" id="s2">
+    <div class="slide-label">Overview</div>
+    <h1>What It Does — One-Liner</h1>
+    <div class="one-liner">
+      A <strong>graph-based deep research agent</strong> that takes a question, plans a report, runs <strong>parallel section workers</strong> (each with its own search → normalize → coverage loop), merges evidence, optionally resolves conflicts, curates context for the writer, and produces a <strong>grounded markdown report with citations</strong>.
+    </div>
+    <h2>Capabilities</h2>
+    <ul>
+      <li>Accepts a research question from the CLI (or stdin)</li>
+      <li>Classifies query complexity and creates a research plan</li>
+      <li>Optionally pauses for <strong>plan approval</strong> before expensive research</li>
+      <li>Runs web search across Exa, Tavily, or Gensee</li>
+      <li>Normalizes and deduplicates evidence</li>
+      <li>Prepares a <strong>capped writer context</strong> (no dump-everything)</li>
+      <li>Writes report to <code>reports/</code>; optional trace JSON, logs, evals</li>
+    </ul>
+  </section>
+
+  <!-- SLIDE 3: Default flow high-level -->
+  <section class="slide" id="s3">
+    <div class="slide-label">Architecture</div>
+    <h1>Default Flow (Phase 2) — High-Level</h1>
+    <div class="flow-box">ingest_request → classify_complexity → create_research_plan
+  → [Human-in-the-loop: approve / edit / cancel]
+  → decompose_into_sections → dispatch_sections
+  → section_worker × N (parallel)
+  → merge_section_evidence → detect_global_gaps_and_conflicts
+  → conflict_route → [optional] conflict_resolution_research
+  → prepare_writer_context → write_sections → write_report → finalize_messages</div>
+    <h2>Why a graph (LangGraph)?</h2>
+    <p>We need <strong>loops</strong> (research until coverage or budget), <strong>branching</strong> (conflict vs no conflict), and a clear <strong>interrupt</strong> (plan approval). A graph makes control flow explicit and debuggable.</p>
+  </section>
+
+  <!-- SLIDE 4: Main graph nodes -->
+  <section class="slide" id="s4">
+    <div class="slide-label">Main Graph</div>
+    <h1>Phase 2 — Main Graph Nodes (Step-by-Step)</h1>
+    <table>
+      <tr><th>Node</th><th>Role</th></tr>
+      <tr><td><code>ingest_request</code></td><td>Read query, init state (query, iterations, empty evidence/outline)</td></tr>
+      <tr><td><code>classify_complexity</code></td><td>Simple / moderate / complex → planner model choice (cost vs quality)</td></tr>
+      <tr><td><code>create_research_plan</code></td><td>Propose report structure; <strong>interrupt here</strong> for HITL</td></tr>
+      <tr><td><code>decompose_into_sections</code></td><td>Turn plan into section_tasks (id, title, goal, key_questions, success_criteria)</td></tr>
+      <tr><td><code>dispatch_sections</code></td><td>Fan out: <code>Send("section_worker", {...})</code> per section (up to max_parallel)</td></tr>
+      <tr><td><code>merge_section_evidence</code></td><td>Combine section results, dedupe by URL, build merged_evidence + section_summaries</td></tr>
+      <tr><td><code>detect_global_gaps_and_conflicts</code></td><td>LLM: conflicts? → conflict_resolution_needed</td></tr>
+      <tr><td><code>conflict_route</code></td><td>If conflicts + enabled → conflict_resolution_research; else → prepare_writer_context</td></tr>
+      <tr><td><code>prepare_writer_context</code></td><td>Rank, cap, section-balance evidence → writer_evidence_subset</td></tr>
+      <tr><td><code>write_sections</code> → <code>write_report</code></td><td>Draft per section, assemble final report + sources</td></tr>
+      <tr><td><code>finalize_messages</code></td><td>Append report as AIMessage to messages</td></tr>
+    </table>
+  </section>
+
+  <!-- SLIDE 5: Section worker subgraph -->
+  <section class="slide" id="s5">
+    <div class="slide-label">Subgraph</div>
+    <h1>Section Worker Subgraph (Per Section)</h1>
+    <p>Each section runs this loop <strong>in parallel</strong>, independent of others.</p>
+    <div class="flow-box">generate_section_queries → section_search → section_normalize
+  → section_assess_coverage → section_route
+  → [incomplete & under budget] → loop to generate_section_queries
+  → [complete or budget exhausted] → generate_section_summary → END</div>
+    <table>
+      <tr><th>Node</th><th>Role</th></tr>
+      <tr><td><code>generate_section_queries</code></td><td>Section-specific (and gap-targeted on follow-up) search queries</td></tr>
+      <tr><td><code>section_search</code></td><td>Call search API; skip URLs in global_seen_urls</td></tr>
+      <tr><td><code>section_normalize</code></td><td>LLM: extract url, title, snippet, relevance, credibility, etc.</td></tr>
+      <tr><td><code>section_assess_coverage</code></td><td>Coverage score 0–10, gaps, section_complete</td></tr>
+      <tr><td><code>section_route</code></td><td>Complete or budget exhausted → summary; else → loop</td></tr>
+      <tr><td><code>generate_section_summary</code></td><td>section_results: { section_id, evidence, summary } for parent</td></tr>
+    </table>
+  </section>
+
+  <!-- SLIDE 6: State & Reducers -->
+  <section class="slide" id="s6">
+    <div class="slide-label">State</div>
+    <h1>State and Reducers (Why They Matter)</h1>
+    <p>Parallel section workers each return state updates. <strong>Reducers</strong> define how those updates merge.</p>
+    <table>
+      <tr><th>Field</th><th>Reducer</th><th>Reason</th></tr>
+      <tr><td><code>section_results</code></td><td><code>operator.add</code></td><td>Accumulate one result per worker</td></tr>
+      <tr><td><code>global_seen_urls</code></td><td><code>_merge_sets</code></td><td>Union URLs across workers</td></tr>
+      <tr><td><code>query</code>, <code>section_max_iterations</code></td><td><code>_keep_first</code></td><td>Parallel workers must not overwrite shared scalars</td></tr>
+      <tr><td><code>messages</code></td><td><code>add_messages</code></td><td>Append conversation</td></tr>
+    </table>
+    <h2>Writer fallback</h2>
+    <p>If <code>writer_evidence_subset</code> is empty (e.g. reducer/merge order), the writer node uses <code>merged_evidence</code> so the report always has sources. This fallback exists because we hit the “writer got no evidence” case in practice.</p>
+  </section>
+
+  <!-- SLIDE 7: Key files -->
+  <section class="slide" id="s7">
+    <div class="slide-label">Codebase</div>
+    <h1>Key Files (Where Things Live)</h1>
+    <table>
+      <tr><th>Area</th><th>File / Path</th></tr>
+      <tr><td>Entry / CLI</td><td><code>run.py</code></td></tr>
+      <tr><td>Main graph</td><td><code>deep_research/graph.py</code> — <code>create_research_graph()</code>, <code>create_research_graph_phase1()</code></td></tr>
+      <tr><td>Section worker</td><td><code>deep_research/section_graph.py</code></td></tr>
+      <tr><td>State</td><td><code>deep_research/state.py</code> — ResearchState, SectionWorkerState</td></tr>
+      <tr><td>Routing</td><td><code>deep_research/routing.py</code> — route, section_route, conflict_route</td></tr>
+      <tr><td>Nodes</td><td><code>deep_research/nodes/</code> — ingest, classify, planner, decompose, search, normalize, coverage, merge, conflicts, writer_context, section_writer, writer, finalize</td></tr>
+      <tr><td>Config</td><td><code>config.yaml</code>, <code>deep_research/configuration.py</code>, <code>report_presets.yaml</code></td></tr>
+      <tr><td>Prompts</td><td><code>deep_research/prompts.py</code></td></tr>
+      <tr><td>Evals</td><td><code>deep_research/evals/</code></td></tr>
+    </table>
+  </section>
+
+  <!-- SLIDE 8: Design decisions -->
+  <section class="slide" id="s8">
+    <div class="slide-label">Design</div>
+    <h1>Design Decisions You Can Defend</h1>
+    <ul>
+      <li><strong>Graph instead of chain:</strong> Routing, loops, shared state, optional interrupt — explicit and inspectable.</li>
+      <li><strong>Normalize evidence:</strong> Search is noisy; normalization improves report quality more than many prompt tweaks.</li>
+      <li><strong>Cap writer context:</strong> Too much context hurts quality; ranking and capping beats “dump everything.”</li>
+      <li><strong>Section workers:</strong> Reports are sectional; per-section research = narrower queries and better coverage for broad topics.</li>
+      <li><strong>Pause after plan only:</strong> Human leverage where it matters (scope) without making the whole flow interactive.</li>
+      <li><strong>Explicit coverage + iteration budget:</strong> “Search until done” is not a design; coverage checks make the loop predictable.</li>
+    </ul>
+  </section>
+
+  <!-- SLIDE 9: Shortcomings -->
+  <section class="slide" id="s9">
+    <div class="slide-label">Honesty</div>
+    <h1>Known Shortcomings (From DESIGN)</h1>
+    <ul>
+      <li>Config and <code>configuration.py</code> not fully aligned for some planner model names.</li>
+      <li>Section summaries don’t get full evidence body yet.</li>
+      <li>Conflict resolution is still shallow.</li>
+      <li>Dedup is URL-based (no semantic dedup yet).</li>
+      <li>Tests are more graph/smoke than deep node correctness.</li>
+    </ul>
+    <h2>What would you improve next?</h2>
+    <p>Config cleanup, stronger section summaries (full evidence into summary), better conflict adjudication, semantic dedup, caching for search, streaming report output, more unit tests per node.</p>
+  </section>
+
+  <!-- SLIDE 10: Demo tips -->
+  <section class="slide" id="s10">
+    <div class="slide-label">Demo</div>
+    <h1>Demo / Presentation Tips</h1>
+    <ol>
+      <li><strong>Run a short query</strong> — e.g. “What are the main differences between LangGraph and CrewAI?” — so they see progress and a report.</li>
+      <li><strong>Show the flow in LangSmith Studio</strong> — <code>langgraph dev</code> → connect Studio → run research graph and show nodes/steps.</li>
+      <li><strong>Mention Phase 1 vs Phase 2</strong> — “Default is section-based (Phase 2); we also kept the simpler single-agent loop (Phase 1) for comparison and debugging.”</li>
+      <li><strong>Point to DESIGN.md</strong> — “We documented evolution, tradeoffs, and known gaps so the design is honest, not just aspirational.”</li>
+      <li><strong>CLI flags:</strong> <code>--auto</code> (skip plan approval), <code>--trace</code> (save trace JSON), <code>--eval</code> (run evals), <code>--search-provider</code>, <code>--max-iterations</code>.</li>
+    </ol>
+  </section>
+
+  <!-- SLIDE 11: Commands -->
+  <section class="slide" id="s11">
+    <div class="slide-label">CLI</div>
+    <h1>Quick Reference — Commands</h1>
+    <pre><code># Run
+python run.py "Your research question"
+python run.py "Question" --auto
+python run.py "Question" --trace --eval -o ./output
+
+# Dev server for Studio
+langgraph dev
+
+# Tests
+pytest tests/ -v</code></pre>
+    <h2>Outputs</h2>
+    <p><code>reports/report_&lt;query&gt;_&lt;timestamp&gt;.md</code>; optional <code>log_*.log</code>, <code>*_trace.json</code> when <code>--log</code> / <code>--trace</code>.</p>
+  </section>
+
+  <!-- SLIDE 12: Interview Q&A highlights -->
+  <section class="slide" id="s12">
+    <div class="slide-label">Interview</div>
+    <h1>Interview Q&A — Highlights</h1>
+    <h2>“How do you avoid the writer hallucinating or ignoring sources?”</h2>
+    <p>We normalize and curate evidence, map it to sections, and cap what the writer sees. We repair the Sources section from state when needed. Evals include claim support and citation relevance.</p>
+    <h2>“How do you handle conflicting information?”</h2>
+    <p>We detect global conflicts after merging section evidence. If enabled, we run <code>conflict_resolution_research</code> before preparing writer context; the writer then sees the reconciled picture.</p>
+    <h2>“What was the hardest bug?”</h2>
+    <p><strong>State merging with parallel section workers.</strong> Reducers (<code>operator.add</code>, <code>_merge_sets</code>, <code>_keep_first</code>) and checkpointer merge order could leave <code>writer_evidence_subset</code> empty — we added a writer fallback to <code>merged_evidence</code>.</p>
+  </section>
+
+  <!-- SLIDE 13: Evals & config -->
+  <section class="slide" id="s13">
+    <div class="slide-label">Evals & Config</div>
+    <h1>Evaluation & Configuration</h1>
+    <h2>Evals (with <code>--eval</code>)</h2>
+    <p>Claim support, factual accuracy, citation relevance, source quality, section completeness, comparative breadth, synthesis quality, conflict handling, stop decision quality, tool trajectory quality. Used for inspection and benchmarking, not hard gates.</p>
+    <h2>Config (<code>config.yaml</code>)</h2>
+    <p>Search provider/depth, max iterations, writer context size, full-page enrichment, section-worker settings, conflict-resolution behavior, model choices, prompt overrides, report structure. CLI overrides config.</p>
+  </section>
+
+  <!-- SLIDE 14: Closing -->
+  <section class="slide" id="s14">
+    <div class="slide-label">Summary</div>
+    <h1>Summary</h1>
+    <p>You built a <strong>multi-node, stateful, section-parallel research graph</strong> with routing, human-in-the-loop, and evaluation. That’s plenty to talk about.</p>
+    <p><strong>Concepts to have ready:</strong> LangGraph (StateGraph, conditional edges, subgraphs, checkpointing), iterative research loops, evidence normalization, writer-context prep, model routing, explicit stopping logic, config-driven behavior.</p>
+    <p style="margin-top: 2rem; color: var(--accent);">Good luck.</p>
+  </section>
+
+  <nav class="nav" aria-label="Slide navigation">
+    <button type="button" class="secondary" id="btnPrev" aria-label="Previous">← Prev</button>
+    <span class="slide-num" id="slideNum">1 / 14</span>
+    <button type="button" id="btnNext" aria-label="Next">Next →</button>
+  </nav>
+
+  <script>
+    const slides = document.querySelectorAll('.slide');
+    const total = slides.length;
+    let current = 0;
+
+    function goTo(i) {
+      current = Math.max(0, Math.min(i, total - 1));
+      slides[current].scrollIntoView({ behavior: 'smooth', block: 'start' });
+      document.getElementById('slideNum').textContent = (current + 1) + ' / ' + total;
+    }
+
+    document.getElementById('btnPrev').addEventListener('click', () => goTo(current - 1));
+    document.getElementById('btnNext').addEventListener('click', () => goTo(current + 1));
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowRight' || e.key === ' ') { e.preventDefault(); goTo(current + 1); }
+      if (e.key === 'ArrowLeft') { e.preventDefault(); goTo(current - 1); }
+    });
+
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting) {
+          const i = Array.from(slides).indexOf(entry.target);
+          if (i !== -1) { current = i; document.getElementById('slideNum').textContent = (current + 1) + ' / ' + total; }
+        }
+      });
+    }, { threshold: 0.5 });
+    slides.forEach((s) => observer.observe(s));
+  </script>
+</body>
+</html>

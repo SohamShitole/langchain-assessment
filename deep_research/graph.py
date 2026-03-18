@@ -20,6 +20,7 @@ from deep_research.nodes.classify import classify_complexity
 from deep_research.nodes.conflicts import (
     conflict_resolution_research,
     detect_global_gaps_and_conflicts,
+    eval_stop_gate,
 )
 from deep_research.nodes.coverage import assess_coverage
 from deep_research.nodes.decompose import decompose_into_sections, dispatch_sections
@@ -32,7 +33,7 @@ from deep_research.nodes.search import run_search
 from deep_research.nodes.section_writer import write_sections
 from deep_research.nodes.writer import write_report
 from deep_research.nodes.writer_context import prepare_writer_context
-from deep_research.routing import conflict_route, route
+from deep_research.routing import conflict_route, route, stop_eval_route
 from deep_research.section_graph import create_section_worker_graph
 from deep_research.state import ResearchState
 
@@ -62,6 +63,7 @@ def create_research_graph(
     builder.add_node("merge_section_evidence", merge_section_evidence)
     builder.add_node("detect_global_gaps_and_conflicts", detect_global_gaps_and_conflicts)
     builder.add_node("conflict_resolution_research", conflict_resolution_research)
+    builder.add_node("eval_stop_gate", eval_stop_gate)
     builder.add_node("prepare_writer_context", prepare_writer_context)
     builder.add_node("write_sections", write_sections)
     builder.add_node("write_report", write_report)
@@ -79,10 +81,18 @@ def create_research_graph(
         conflict_route,
         {
             "conflict_resolution_research": "conflict_resolution_research",
+            "prepare_writer_context": "eval_stop_gate",
+        },
+    )
+    builder.add_edge("conflict_resolution_research", "eval_stop_gate")
+    builder.add_conditional_edges(
+        "eval_stop_gate",
+        stop_eval_route,
+        {
+            "conflict_resolution_research": "conflict_resolution_research",
             "prepare_writer_context": "prepare_writer_context",
         },
     )
-    builder.add_edge("conflict_resolution_research", "prepare_writer_context")
     builder.add_edge("prepare_writer_context", "write_sections")
     builder.add_edge("write_sections", "write_report")
     builder.add_edge("write_report", "finalize_messages")

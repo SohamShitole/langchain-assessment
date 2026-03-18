@@ -54,6 +54,11 @@ class ResearchState(TypedDict, total=False):
     conflict_resolution_enabled: bool
     section_max_iterations: Annotated[int, _keep_first]  # Reducer for parallel workers
 
+    # Eval stop gate (decision)
+    stop_eval_score: float
+    research_sufficient: bool
+    research_retry_count: int
+
 
 class SectionWorkerState(TypedDict, total=False):
     """State for the section worker subgraph."""

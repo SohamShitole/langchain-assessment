@@ -1,0 +1,2399 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Deep Research Agent — Interactive Architecture</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Syne:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #080C14;
+      --bg2: #0D1220;
+      --bg3: #131B2E;
+      --border: #1C2A40;
+      --text: #C8D6E8;
+      --text-dim: #4B6480;
+      --accent: #3B82F6;
+    }
+
+    html { font-family: 'Syne', sans-serif; background: var(--bg); color: var(--text); height: 100%; }
+    body { height: 100vh; overflow: hidden; display: flex; flex-direction: column; }
+
+    header {
+      padding: 14px 24px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      background: var(--bg2);
+      flex-shrink: 0;
+    }
+
+    header h1 {
+      font-size: 17px;
+      font-weight: 800;
+      background: linear-gradient(135deg, #60A5FA, #A78BFA);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      letter-spacing: -0.02em;
+    }
+
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 16px;
+      padding: 8px 24px;
+      background: var(--bg2);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-dim);
+    }
+
+    .legend-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 3px;
+      flex-shrink: 0;
+    }
+
+    .tabs {
+      display: flex;
+      padding: 0 24px;
+      background: var(--bg2);
+      border-bottom: 1px solid var(--border);
+      gap: 2px;
+      flex-shrink: 0;
+    }
+
+    .tab-btn {
+      padding: 10px 20px;
+      background: none;
+      border: none;
+      border-bottom: 2px solid transparent;
+      color: var(--text-dim);
+      font-family: inherit;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.15s;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+    .tab-btn:hover:not(.active) { color: var(--text); }
+
+    #main {
+      flex: 1;
+      display: flex;
+      overflow: hidden;
+    }
+
+    #graph-container {
+      flex: 1;
+      overflow: auto;
+      padding: 20px 16px;
+      background: var(--bg);
+    }
+
+    #graph-container svg { display: block; margin: 0 auto; }
+
+    .node-group { cursor: pointer; }
+
+    /* Detail panel */
+    #detail-panel {
+      width: 340px;
+      min-width: 300px;
+      border-left: 1px solid var(--border);
+      background: var(--bg2);
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .detail-placeholder {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      color: var(--text-dim);
+      padding: 40px 24px;
+      gap: 14px;
+    }
+
+    .detail-placeholder p {
+      font-size: 13px;
+      font-weight: 500;
+      line-height: 1.7;
+    }
+
+    #detail-content {
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .detail-type-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 3px 10px;
+      border-radius: 20px;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      width: fit-content;
+      border: 1px solid;
+    }
+
+    .detail-name {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 16px;
+      font-weight: 600;
+      color: white;
+      line-height: 1.4;
+      word-break: break-word;
+    }
+
+    .detail-file {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      color: var(--text-dim);
+      background: var(--bg3);
+      padding: 7px 11px;
+      border-radius: 7px;
+      border: 1px solid var(--border);
+      word-break: break-all;
+    }
+
+    .detail-section-title {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--text-dim);
+      margin-bottom: 8px;
+    }
+
+    .detail-description {
+      font-size: 12.5px;
+      line-height: 1.65;
+      color: var(--text);
+    }
+
+    .fields-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+    }
+
+    .field-tag {
+      display: inline-flex;
+      align-items: center;
+      padding: 4px 9px;
+      border-radius: 5px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10.5px;
+      font-weight: 500;
+      border: 1px solid;
+      word-break: break-word;
+    }
+
+    .field-tag.input {
+      background: rgba(59,130,246,0.08);
+      border-color: rgba(59,130,246,0.25);
+      color: #93C5FD;
+    }
+
+    .field-tag.output {
+      background: rgba(52,211,153,0.08);
+      border-color: rgba(52,211,153,0.25);
+      color: #6EE7B7;
+    }
+
+    .model-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      background: rgba(167,139,250,0.1);
+      border: 1px solid rgba(167,139,250,0.25);
+      border-radius: 7px;
+      padding: 8px 13px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11.5px;
+      color: #C4B5FD;
+      line-height: 1.4;
+    }
+
+    .rationale-box {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-left: 3px solid #3B82F6;
+      border-radius: 7px;
+      padding: 12px 14px;
+      font-size: 12px;
+      line-height: 1.65;
+      color: var(--text-dim);
+    }
+
+    .detail-hr {
+      border: none;
+      border-top: 1px solid var(--border);
+    }
+
+    ::-webkit-scrollbar { width: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+    /* ─── Top-level nav ─────────────────────────────────────────────────────── */
+    #top-nav {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding: 0 24px;
+      background: var(--bg2);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .top-nav-btn {
+      padding: 11px 18px;
+      background: none;
+      border: none;
+      border-bottom: 2px solid transparent;
+      color: var(--text-dim);
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.15s;
+      letter-spacing: 0.03em;
+    }
+    .top-nav-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+    .top-nav-btn:hover:not(.active) { color: var(--text); }
+
+    /* ─── Page sections ──────────────────────────────────────────────────────── */
+    .page-section { display: none; flex: 1; overflow: hidden; flex-direction: column; }
+    .page-section.active { display: flex; }
+
+    /* ─── Architecture / Interview content area ───────────────────────────── */
+    .content-area {
+      flex: 1;
+      overflow-y: auto;
+      padding: 28px 32px;
+    }
+    .content-area h2 {
+      font-size: 22px;
+      font-weight: 800;
+      background: linear-gradient(135deg, #60A5FA, #A78BFA);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      margin-bottom: 8px;
+      letter-spacing: -0.02em;
+    }
+    .content-area .section-intro {
+      font-size: 13px;
+      color: var(--text-dim);
+      margin-bottom: 24px;
+      line-height: 1.6;
+      max-width: 800px;
+    }
+
+    /* ─── Category headers ───────────────────────────────────────────────────── */
+    .cat-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin: 28px 0 14px 0;
+    }
+    .cat-icon {
+      width: 32px; height: 32px;
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 15px;
+      flex-shrink: 0;
+    }
+    .cat-title { font-size: 14px; font-weight: 700; color: var(--text); letter-spacing: 0.02em; }
+    .cat-line { flex: 1; height: 1px; background: var(--border); }
+
+    /* ─── Accordion cards ────────────────────────────────────────────────────── */
+    .card-grid { display: flex; flex-direction: column; gap: 8px; max-width: 900px; }
+    .accordion {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow: hidden;
+      background: var(--bg2);
+      transition: border-color 0.2s;
+    }
+    .accordion:hover { border-color: #2A3F5A; }
+    .accordion.open { border-color: #2D4C6E; }
+    .acc-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 18px;
+      cursor: pointer;
+      gap: 12px;
+      user-select: none;
+    }
+    .acc-question {
+      font-size: 13.5px;
+      font-weight: 600;
+      color: var(--text);
+      line-height: 1.4;
+      flex: 1;
+    }
+    .acc-badge {
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      padding: 3px 8px;
+      border-radius: 12px;
+      border: 1px solid;
+      flex-shrink: 0;
+    }
+    .acc-chevron {
+      color: var(--text-dim);
+      flex-shrink: 0;
+      transition: transform 0.2s;
+    }
+    .accordion.open .acc-chevron { transform: rotate(180deg); }
+    .acc-body {
+      display: none;
+      padding: 0 18px 16px 18px;
+      border-top: 1px solid var(--border);
+    }
+    .accordion.open .acc-body { display: block; }
+    .acc-body p, .acc-body li {
+      font-size: 13px;
+      line-height: 1.7;
+      color: var(--text-dim);
+    }
+    .acc-body p { margin: 10px 0 0 0; }
+    .acc-body ul { padding-left: 20px; margin: 8px 0 0 0; }
+    .acc-body li { margin: 4px 0; }
+    .acc-body strong { color: var(--text); font-weight: 600; }
+    .acc-body code {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11.5px;
+      background: var(--bg3);
+      padding: 2px 6px;
+      border-radius: 4px;
+      border: 1px solid var(--border);
+      color: #93C5FD;
+    }
+    .acc-body pre {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 14px 16px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      color: #C8D6E8;
+      overflow-x: auto;
+      margin: 12px 0 0 0;
+      line-height: 1.5;
+    }
+
+    /* ─── Data tables ────────────────────────────────────────────────────────── */
+    .data-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 12px;
+      font-size: 12px;
+    }
+    .data-table th {
+      padding: 8px 12px;
+      text-align: left;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--text-dim);
+      border-bottom: 1px solid var(--border);
+      background: var(--bg3);
+    }
+    .data-table td {
+      padding: 9px 12px;
+      border-bottom: 1px solid #12202F;
+      color: var(--text-dim);
+      vertical-align: top;
+      line-height: 1.5;
+    }
+    .data-table td:first-child {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      color: #93C5FD;
+      white-space: nowrap;
+    }
+    .data-table tr:last-child td { border-bottom: none; }
+    .data-table tr:hover td { background: rgba(255,255,255,0.02); }
+
+    /* ─── Tags ───────────────────────────────────────────────────────────────── */
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      padding: 2px 8px;
+      border-radius: 5px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10.5px;
+      font-weight: 500;
+      border: 1px solid;
+      margin: 2px 2px 0 0;
+    }
+    .tag-blue { background: rgba(59,130,246,.08); border-color: rgba(59,130,246,.25); color: #93C5FD; }
+    .tag-green { background: rgba(52,211,153,.08); border-color: rgba(52,211,153,.25); color: #6EE7B7; }
+    .tag-amber { background: rgba(251,191,36,.08); border-color: rgba(251,191,36,.25); color: #FCD34D; }
+    .tag-red { background: rgba(248,113,113,.08); border-color: rgba(248,113,113,.25); color: #FCA5A5; }
+    .tag-purple { background: rgba(167,139,250,.08); border-color: rgba(167,139,250,.25); color: #C4B5FD; }
+
+    /* ─── Highlight box ──────────────────────────────────────────────────────── */
+    .highlight-box {
+      border: 1px solid var(--border);
+      border-left: 3px solid var(--accent);
+      border-radius: 8px;
+      background: var(--bg3);
+      padding: 12px 16px;
+      font-size: 12.5px;
+      line-height: 1.65;
+      color: var(--text-dim);
+      margin-top: 12px;
+    }
+    .highlight-box.green { border-left-color: #0D9488; }
+    .highlight-box.amber { border-left-color: #B45309; }
+    .highlight-box.red { border-left-color: #BE185D; }
+    .highlight-box strong { color: var(--text); }
+
+    /* ─── Quick Reference ────────────────────────────────────────────────────── */
+    .qr-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; max-width: 1000px; }
+    @media (max-width: 800px) { .qr-grid { grid-template-columns: 1fr; } }
+    .qr-card {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+    }
+    .qr-card h3 {
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--text-dim);
+      margin-bottom: 14px;
+    }
+    .qr-card pre {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 14px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11.5px;
+      color: #C8D6E8;
+      overflow-x: auto;
+      line-height: 1.55;
+    }
+    .qr-file { display: flex; flex-direction: column; gap: 6px; }
+    .qr-file-row { display: flex; gap: 10px; align-items: baseline; }
+    .qr-file-name {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      color: #93C5FD;
+      flex-shrink: 0;
+      min-width: 280px;
+    }
+    .qr-file-desc { font-size: 12px; color: var(--text-dim); }
+
+    /* ─── Search bar ─────────────────────────────────────────────────────────── */
+    .search-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 14px;
+      margin-bottom: 20px;
+      max-width: 460px;
+    }
+    .search-bar input {
+      flex: 1;
+      background: none;
+      border: none;
+      outline: none;
+      font-family: inherit;
+      font-size: 13px;
+      color: var(--text);
+    }
+    .search-bar input::placeholder { color: var(--text-dim); }
+
+    /* ─── Interview tags ─────────────────────────────────────────────────────── */
+    .int-difficulty {
+      font-size: 9px;
+      font-weight: 800;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      padding: 3px 8px;
+      border-radius: 12px;
+      flex-shrink: 0;
+    }
+    .diff-core { background: rgba(59,130,246,.15); color: #60A5FA; border: 1px solid rgba(59,130,246,.3); }
+    .diff-deep { background: rgba(167,139,250,.15); color: #A78BFA; border: 1px solid rgba(167,139,250,.3); }
+    .diff-prod { background: rgba(251,191,36,.15); color: #FCD34D; border: 1px solid rgba(251,191,36,.3); }
+    .diff-bonus { background: rgba(52,211,153,.15); color: #34D399; border: 1px solid rgba(52,211,153,.3); }
+  </style>
+</head>
+<body>
+
+<header>
+  <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+    <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="#60A5FA" stroke-width="2" stroke-linejoin="round"/>
+    <path d="M2 17L12 22L22 17" stroke="#A78BFA" stroke-width="2" stroke-linejoin="round"/>
+    <path d="M2 12L12 17L22 12" stroke="#818CF8" stroke-width="2" stroke-linejoin="round"/>
+  </svg>
+  <h1>Deep Research Agent — Interactive Architecture</h1>
+</header>
+
+<div id="top-nav">
+  <button class="top-nav-btn active" data-section="graph">⬡ Flow Graph</button>
+  <button class="top-nav-btn" data-section="architecture">⚙ Architecture</button>
+  <button class="top-nav-btn" data-section="interview">💬 Interview Prep</button>
+  <button class="top-nav-btn" data-section="quickref">⚡ Quick Reference</button>
+</div>
+
+<div id="sec-graph" class="page-section active" style="flex-direction:column">
+<div class="legend">
+  <div class="legend-item"><div class="legend-dot" style="background:#7C3AED"></div>Terminal</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#0D9488"></div>LLM Node</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#1D4ED8"></div>Utility Node</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#B45309"></div>Routing / Conditional</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#6D28D9"></div>Subgraph</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#9F1239"></div>Optional Node</div>
+  <div class="legend-item" style="margin-left:auto">
+    <svg width="14" height="6" viewBox="0 0 14 6"><line x1="0" y1="3" x2="14" y2="3" stroke="#B45309" stroke-width="1.5" stroke-dasharray="3,2"/></svg>
+    &nbsp;Conditional path
+  </div>
+</div>
+
+<div class="tabs">
+  <button class="tab-btn active" data-graph="phase2">Phase 2 — Main Graph</button>
+  <button class="tab-btn" data-graph="sectionWorker">Section Worker Subgraph</button>
+  <button class="tab-btn" data-graph="phase1">Phase 1 — Legacy</button>
+</div>
+
+<div id="main">
+  <div id="graph-container">
+    <svg id="main-svg"></svg>
+  </div>
+  <div id="detail-panel">
+    <div class="detail-placeholder">
+      <svg width="44" height="44" viewBox="0 0 24 24" fill="none" opacity="0.3">
+        <circle cx="11" cy="11" r="8" stroke="#C8D6E8" stroke-width="2"/>
+        <path d="M21 21L16.65 16.65" stroke="#C8D6E8" stroke-width="2" stroke-linecap="round"/>
+        <line x1="11" y1="8" x2="11" y2="14" stroke="#C8D6E8" stroke-width="2" stroke-linecap="round"/>
+        <circle cx="11" cy="16" r="0.5" stroke="#C8D6E8" stroke-width="1.5"/>
+      </svg>
+      <p>Click any node to explore<br>its inputs, outputs &amp; rationale</p>
+    </div>
+  </div>
+</div>
+</div><!-- /sec-graph -->
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     ARCHITECTURE SECTION
+════════════════════════════════════════════════════════════════════════════ -->
+<div id="sec-architecture" class="page-section">
+<div class="content-area" id="arch-content">
+  <h2>Architecture Deep Dive</h2>
+  <p class="section-intro">Expandable cards covering design philosophy, state modeling, node responsibilities, loops, output patterns, testing, production, and security. Click any card to expand.</p>
+
+  <div class="search-bar">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" opacity="0.5"><circle cx="11" cy="11" r="8" stroke="#C8D6E8" stroke-width="2"/><path d="M21 21L16.65 16.65" stroke="#C8D6E8" stroke-width="2" stroke-linecap="round"/></svg>
+    <input type="text" id="arch-search" placeholder="Search topics…" autocomplete="off">
+  </div>
+
+  <div id="arch-cards"></div>
+</div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     INTERVIEW PREP SECTION
+════════════════════════════════════════════════════════════════════════════ -->
+<div id="sec-interview" class="page-section">
+<div class="content-area">
+  <h2>Interview Prep</h2>
+  <p class="section-intro">Likely questions with thorough answers. Click to expand. Sorted by difficulty level.</p>
+  <div id="interview-cards"></div>
+</div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     QUICK REFERENCE SECTION
+════════════════════════════════════════════════════════════════════════════ -->
+<div id="sec-quickref" class="page-section">
+<div class="content-area">
+  <h2>Quick Reference</h2>
+  <p class="section-intro">Commands, key files, design decision table, eval metrics, and success criteria — everything you need at a glance.</p>
+  <div id="quickref-content"></div>
+</div>
+</div>
+
+<script>
+// ─────────────────────────────────────────────────────────────────────────────
+// DATA
+// ─────────────────────────────────────────────────────────────────────────────
+
+const TYPE_COLORS = {
+  terminal: '#7C3AED',
+  llm:      '#0D9488',
+  utility:  '#1D4ED8',
+  routing:  '#B45309',
+  subgraph: '#6D28D9',
+  optional: '#9F1239',
+};
+
+const TYPE_LABELS = {
+  terminal: 'Terminal',
+  llm:      'LLM Node',
+  utility:  'Utility Node',
+  routing:  'Routing / Conditional',
+  subgraph: 'Subgraph',
+  optional: 'Optional Node',
+};
+
+const GRAPHS = {
+
+  // ───────────────────────────────────────────────
+  // PHASE 2 MAIN GRAPH
+  // ───────────────────────────────────────────────
+  phase2: {
+    svgW: 640, svgH: 1700,
+    nodes: [
+      {
+        id: 'start', label: 'START', type: 'terminal', shape: 'circle',
+        x: 260, y: 52, r: 28,
+        description: 'Graph entry point. run.py calls graph.invoke() or graph.stream() with initial state containing the user\'s HumanMessage query.',
+        file: 'run.py',
+        inputs: ['messages: [HumanMessage(query)]'],
+        outputs: [],
+        model: null,
+        rationale: 'LangGraph requires a defined start node. Initial state carries only the user\'s message; all other fields are initialised by ingest_request.',
+      },
+      {
+        id: 'ingest', label: 'ingest_request', sublabel: 'UTILITY',
+        type: 'utility', x: 260, y: 165, w: 270, h: 58,
+        description: 'Reads the latest HumanMessage from messages, normalises the query text (handles plain strings and multimodal content lists), then initialises ALL state fields to clean empty defaults so no downstream node ever sees undefined values.',
+        file: 'deep_research/nodes/ingest.py',
+        inputs: ['messages'],
+        outputs: ['query', 'iteration', 'max_iterations', 'report_outline', 'search_queries', 'raw_search_results', 'evidence_items', 'coverage_status', 'knowledge_gaps', 'seen_urls', 'writer_evidence_subset', 'report_markdown', 'sources', 'research_plan', 'section_tasks', 'section_results', 'merged_evidence', 'global_conflicts', 'section_summaries', 'global_seen_urls', 'research_trace', 'conflict_resolution_enabled'],
+        model: null,
+        rationale: 'The graph needs a clean slate and one canonical query string. Initialising everything here means every other node can safely read from state without None-checks.',
+      },
+      {
+        id: 'classify', label: 'classify_complexity', sublabel: 'LLM CALL',
+        type: 'llm', x: 260, y: 283, w: 270, h: 58,
+        description: 'Uses gpt-4o-mini with structured output (ClassifyOutput) to label the query as simple / moderate / complex and pick the right planner model tier for the rest of the pipeline.',
+        file: 'deep_research/nodes/classify.py',
+        inputs: ['query', 'config.classifier_model'],
+        outputs: ['complexity', 'planner_model'],
+        model: 'gpt-4o-mini  (configurable: classifier_model)',
+        rationale: 'Routing effort to the right model tier saves cost. Simple queries use gpt-4o-mini throughout; complex ones escalate to gpt-4o for planning. Classifying once upfront avoids decision-making scattered across nodes.',
+      },
+      {
+        id: 'plan', label: 'create_research_plan', sublabel: 'LLM CALL  ·  ⏸ HITL',
+        type: 'llm', x: 260, y: 401, w: 290, h: 58, hitl: true,
+        description: 'Single LLM call using the chosen planner_model to produce a full research plan: objective, desired_structure (report sections), section_names, difficulty_areas, section_descriptions. Response is parsed from JSON (including from markdown code blocks). This is the only optional human-in-the-loop interrupt point.',
+        file: 'deep_research/nodes/planner.py',
+        inputs: ['query', 'planner_model', 'config'],
+        outputs: ['research_plan', 'report_outline', 'research_trace'],
+        model: 'planner_model  (gpt-4o-mini or gpt-4o, from classify)',
+        rationale: 'Defines scope and report shape before any expensive search. Interrupting here lets the user approve, edit (with feedback → replan), or cancel — fixing scope at the cheapest possible point in the pipeline.',
+      },
+      {
+        id: 'decompose', label: 'decompose_into_sections', sublabel: 'LLM CALL',
+        type: 'llm', x: 260, y: 519, w: 290, h: 58,
+        description: 'LLM turns the research plan into a list of section_tasks. Each task contains: id, title, goal, key_questions, success_criteria, priority, search_hints. Falls back to a single "Overview" section if JSON parsing fails.',
+        file: 'deep_research/nodes/decompose.py',
+        inputs: ['research_plan', 'config.decompose_model', 'config.section_max_iterations'],
+        outputs: ['section_tasks', 'section_max_iterations', 'research_trace'],
+        model: 'decompose_model',
+        rationale: 'Section workers need self-contained tasks with explicit goals and success criteria so they can run their own research loop independently and in parallel without shared planner state.',
+      },
+      {
+        id: 'dispatch', label: 'dispatch_sections', sublabel: 'ROUTING / FAN-OUT',
+        type: 'routing', x: 260, y: 617, w: 270, h: 50,
+        description: 'Conditional edge function that returns a list of Send("section_worker", {...}) — one per section task, capped by max_parallel_sections. LangGraph fans out to N parallel section workers, each with its own isolated state slice.',
+        file: 'deep_research/nodes/decompose.py  (dispatch_sections)',
+        inputs: ['section_tasks', 'global_seen_urls', 'query', 'section_max_iterations', 'config.max_parallel_sections'],
+        outputs: ['N × Send("section_worker", { section_task, query, global_seen_urls, section_max_iterations })'],
+        model: null,
+        rationale: 'LangGraph Send enables true parallel execution. Workers only merge back via section_results (operator.add reducer), so there are no shared mutable state conflicts.',
+      },
+      {
+        id: 'section_worker', label: 'section_worker × N', sublabel: 'PARALLEL SUBGRAPH',
+        type: 'subgraph', x: 260, y: 722, w: 360, h: 66,
+        description: 'N parallel section workers, one per section task. Each runs its own inner research loop: generate_section_queries → section_search → section_normalize → section_assess_coverage → (loop or) generate_section_summary. See the "Section Worker Subgraph" tab for full inner-loop details.',
+        file: 'deep_research/section_graph.py',
+        inputs: ['section_task', 'query', 'global_seen_urls', 'section_max_iterations'],
+        outputs: ['section_results  (accumulated into parent via operator.add)'],
+        model: 'section_query_model, normalizer_model, section_coverage_model, section_summary_model',
+        rationale: 'Per-section research is targeted (narrow scope per worker) and parallelisable. Section workers never share mutable state — only contribute a single result entry when done.',
+      },
+      {
+        id: 'merge', label: 'merge_section_evidence', sublabel: 'UTILITY',
+        type: 'utility', x: 260, y: 848, w: 290, h: 58,
+        description: 'Iterates over all section_results; deduplicates evidence by URL; builds merged_evidence with supporting_sections and cross_cutting flags; builds section_summaries for the writer; updates global_seen_urls and research_trace with url/dedup counts and per-section coverage scores.',
+        file: 'deep_research/nodes/merge.py',
+        inputs: ['section_results'],
+        outputs: ['merged_evidence', 'section_summaries', 'global_seen_urls', 'research_trace'],
+        model: null,
+        rationale: 'One global evidence set with URL-level deduplication and section provenance. Without this, the writer sees duplicate sources and the conflict detector processes noisy input.',
+      },
+      {
+        id: 'detect', label: 'detect_global_gaps_and_conflicts', sublabel: 'LLM CALL',
+        type: 'llm', x: 260, y: 966, w: 340, h: 58,
+        description: 'LLM with structured output (ConflictOutput) to detect conflicting claims across the merged evidence. Evidence is summarised for the prompt to avoid token overflow. Sets conflict_resolution_needed flag and records conflict count in research_trace.',
+        file: 'deep_research/nodes/conflicts.py',
+        inputs: ['merged_evidence', 'config.conflict_detect_model', 'config.conflict_resolution_enabled'],
+        outputs: ['global_conflicts', 'conflict_resolution_needed', 'conflict_resolution_enabled', 'research_trace'],
+        model: 'conflict_detect_model',
+        rationale: 'Parallel section workers can pull evidence that contradicts across sections. Without a global pass, the final report could contain conflicting claims presented as fact.',
+      },
+      {
+        id: 'conflict_route', label: 'conflict_route', sublabel: 'ROUTING',
+        type: 'routing', x: 260, y: 1064, w: 230, h: 50,
+        description: 'Rule-based conditional edge: if conflict_resolution_needed AND conflict_resolution_enabled → conflict_resolution_research; otherwise → prepare_writer_context.',
+        file: 'deep_research/routing.py',
+        inputs: ['conflict_resolution_needed', 'conflict_resolution_enabled'],
+        outputs: ['→ conflict_resolution_research  OR  → prepare_writer_context'],
+        model: null,
+        rationale: 'Rule-based routing (not LLM-decided) keeps the graph predictable. Resolution is opt-in via config to avoid unnecessary API calls when conflicts are minor or resolution is disabled.',
+      },
+      {
+        id: 'conflict_res', label: 'conflict_resolution_research', sublabel: 'OPTIONAL · LLM',
+        type: 'optional', x: 470, y: 1170, w: 290, h: 58,
+        description: 'Generates targeted search queries to resolve detected conflicts; runs search (Gensee/Tavily/Exa); adds new results to merged_evidence (flagged as conflict_resolution); then LLM adjudication using credibility, recency, and primary-source heuristics produces resolved_conflicts.',
+        file: 'deep_research/nodes/conflicts.py',
+        inputs: ['global_conflicts', 'merged_evidence', 'config', 'env (search provider keys)'],
+        outputs: ['merged_evidence  (updated)', 'global_conflicts  (updated)', 'global_seen_urls'],
+        model: 'LLM for query generation + adjudication',
+        rationale: 'Targeted resolution research reduces the risk of the final report stating contradictory facts. Adjudication uses credibility/recency heuristics, not just LLM intuition.',
+      },
+      {
+        id: 'writer_ctx', label: 'prepare_writer_context', sublabel: 'UTILITY',
+        type: 'utility', x: 260, y: 1290, w: 280, h: 58,
+        description: 'Converts merged evidence to writer format. Scores each item by relevance, credibility, and redundancy. Selects evidence ensuring every report section gets at least one source; adds cross-cutting sources; fills remaining slots up to writer_context_max_items. Optionally fetches full-page content via Tavily Extract, Exa get_contents, or trafilatura.',
+        file: 'deep_research/nodes/writer_context.py',
+        inputs: ['merged_evidence', 'report_outline', 'config.writer_context_max_items', 'config.fetch_full_pages', 'config.full_page_max_chars'],
+        outputs: ['writer_evidence_subset', 'research_trace'],
+        model: null,
+        rationale: 'Writer gets a bounded, section-balanced, high-quality evidence set. Prevents context overflow and focuses the model on the best sources. Quality beats volume for generation.',
+      },
+      {
+        id: 'write_sections', label: 'write_sections', sublabel: 'LLM CALL (per section)',
+        type: 'llm', x: 260, y: 1408, w: 290, h: 58,
+        description: 'Assigns global 1-based citation indices to evidence upfront. For each report section: builds a focused prompt with section title, description, section summary, unresolved_questions, and ONLY that section\'s evidence. One LLM call per section; produces section_drafts.',
+        file: 'deep_research/nodes/section_writer.py',
+        inputs: ['report_outline', 'writer_evidence_subset', 'section_summaries', 'config.writer_model'],
+        outputs: ['section_drafts'],
+        model: 'writer_model',
+        rationale: 'Writing per section avoids a single huge prompt that exceeds context limits. Global citation indices are assigned here so the assembly step never needs renumbering.',
+      },
+      {
+        id: 'write_report', label: 'write_report', sublabel: 'LLM CALL',
+        type: 'llm', x: 260, y: 1526, w: 260, h: 58,
+        description: 'Assembly mode (Phase 2): stitches section drafts and the global sources list into one final report using REPORT_ASSEMBLY_PROMPT. No raw evidence in the prompt — only pre-written section drafts, keeping context small.',
+        file: 'deep_research/nodes/writer.py',
+        inputs: ['section_drafts', 'writer_evidence_subset', 'report_outline', 'config.report_structure'],
+        outputs: ['report_markdown', 'sources'],
+        model: 'writer_model',
+        rationale: 'One canonical place that produces final markdown and the sources list. Assembly mode keeps context small and consistent; no renumbering needed since indices were set in write_sections.',
+      },
+      {
+        id: 'finalize', label: 'finalize_messages', sublabel: 'UTILITY',
+        type: 'utility', x: 260, y: 1634, w: 270, h: 58,
+        description: 'Wraps report_markdown in an AIMessage and appends it to the messages conversation history.',
+        file: 'deep_research/nodes/finalize.py',
+        inputs: ['report_markdown'],
+        outputs: ['messages  (AIMessage appended)'],
+        model: null,
+        rationale: 'Makes the run compatible with chat-style APIs and LangGraph checkpointer persistence. The conversation now contains the full research report as the assistant\'s response.',
+      },
+      {
+        id: 'end', label: 'END', type: 'terminal', shape: 'circle',
+        x: 260, y: 1680, r: 22,
+        description: 'Graph terminates. The final state contains the report in messages (as AIMessage) and in report_markdown. run.py reads report_markdown, repairs the Sources section if needed, and writes to reports/report_<query>_<timestamp>.md.',
+        file: 'run.py',
+        inputs: ['messages', 'report_markdown', 'sources'],
+        outputs: [],
+        model: null,
+        rationale: 'Terminal node signals LangGraph that execution is complete. run.py handles output — writing the report file, optionally logging trace JSON and running evals.',
+      },
+    ],
+    edges: [
+      { from: 'start',          to: 'ingest' },
+      { from: 'ingest',         to: 'classify' },
+      { from: 'classify',       to: 'plan' },
+      { from: 'plan',           to: 'decompose', label: '✓ Approved' },
+      { from: 'decompose',      to: 'dispatch' },
+      { from: 'dispatch',       to: 'section_worker', label: 'Send × N' },
+      { from: 'section_worker', to: 'merge' },
+      { from: 'merge',          to: 'detect' },
+      { from: 'detect',         to: 'conflict_route' },
+      { from: 'conflict_route', to: 'conflict_res',  label: 'conflicts', dashed: true, bend: 'right' },
+      { from: 'conflict_route', to: 'writer_ctx',    label: 'no conflicts' },
+      { from: 'conflict_res',   to: 'writer_ctx',    curveBack: true },
+      { from: 'writer_ctx',     to: 'write_sections' },
+      { from: 'write_sections', to: 'write_report' },
+      { from: 'write_report',   to: 'finalize' },
+      { from: 'finalize',       to: 'end' },
+    ],
+  },
+
+  // ───────────────────────────────────────────────
+  // SECTION WORKER SUBGRAPH
+  // ───────────────────────────────────────────────
+  sectionWorker: {
+    svgW: 580, svgH: 850,
+    nodes: [
+      {
+        id: 'sw_start', label: 'START', type: 'terminal', shape: 'circle',
+        x: 260, y: 52, r: 30,
+        description: 'Receives initial state from dispatch_sections via LangGraph Send. Each worker has its own isolated state slice — no shared mutable state between parallel workers.',
+        file: 'deep_research/section_graph.py',
+        inputs: ['section_task', 'query', 'global_seen_urls', 'section_max_iterations'],
+        outputs: [],
+        model: null,
+        rationale: 'LangGraph Send copies the needed state fields into each worker\'s own namespace, enabling true parallelism. Workers only contribute back via section_results (operator.add).',
+      },
+      {
+        id: 'gen_queries', label: 'generate_section_queries', sublabel: 'LLM CALL',
+        type: 'llm', x: 260, y: 180, w: 300, h: 58,
+        description: 'Iteration 0: broad LLM prompt using section_task + query to discover the landscape. Follow-up iterations: targeted prompt using section_gaps + section_seen_urls to avoid re-fetching known sources and focus on what\'s missing.',
+        file: 'deep_research/nodes/section_queries.py',
+        inputs: ['section_task', 'query', 'section_gaps  (iteration > 0)', 'section_seen_urls  (iteration > 0)', 'config.section_query_model', 'config.section_queries_per_iteration'],
+        outputs: ['section_queries', 'section_iteration  (incremented)'],
+        model: 'section_query_model',
+        rationale: 'First iteration is broad to discover the landscape; later iterations target identified gaps. Passing seen_urls prevents re-fetching already-indexed content.',
+      },
+      {
+        id: 'sec_search', label: 'section_search', sublabel: 'UTILITY (Search API)',
+        type: 'utility', x: 260, y: 298, w: 290, h: 58,
+        description: 'For each query, calls the configured search API (Gensee / Gensee Deep / Tavily / Exa). Filters out URLs already in global_seen_urls. Attaches section_id and source query string to each result for provenance tracking.',
+        file: 'deep_research/nodes/section_search.py',
+        inputs: ['section_queries', 'global_seen_urls', 'section_task.section_id', 'config (search provider)', 'env (API keys)'],
+        outputs: ['section_raw_results', 'section_seen_urls'],
+        model: null,
+        rationale: 'Section-specific search without re-fetching URLs already used by other sections. URL deduplication at search time reduces downstream normalisation work.',
+      },
+      {
+        id: 'sec_norm', label: 'section_normalize', sublabel: 'LLM CALL',
+        type: 'llm', x: 260, y: 416, w: 270, h: 58,
+        description: 'LLM with structured output (SectionEvidenceItem) extracts: url, title, snippet, relevance_score (0–10), credibility, source_type, recency, novelty_flag, is_primary, is_redundant. Filters out results with relevance_score < 5.',
+        file: 'deep_research/nodes/section_normalize.py',
+        inputs: ['section_raw_results', 'section_task.goal', 'config.normalizer_model'],
+        outputs: ['section_evidence', 'section_seen_urls'],
+        model: 'normalizer_model',
+        rationale: 'Raw search results are noisy: duplicates, shallow snippets, irrelevant hits. Rich structured metadata (relevance, credibility, recency) enables ranked selection in writer-context prep.',
+      },
+      {
+        id: 'sec_coverage', label: 'section_assess_coverage', sublabel: 'LLM CALL',
+        type: 'llm', x: 260, y: 534, w: 300, h: 58,
+        description: 'LLM with structured output (SectionCoverageOutput): coverage_score (0–10), gaps list (each with a critical flag), section_complete (true if score ≥ 6 or explicitly set by LLM). Records score in section_coverage for later merge-trace.',
+        file: 'deep_research/nodes/section_coverage.py',
+        inputs: ['section_task', 'section_evidence', 'config.section_coverage_model'],
+        outputs: ['section_coverage', 'section_gaps', 'section_complete'],
+        model: 'section_coverage_model',
+        rationale: 'Explicit stopping criterion: replaces "search until it feels done" with a defined score threshold (≥ 6/10). The section_complete flag drives the section_route conditional.',
+      },
+      {
+        id: 'sec_route', label: 'section_route', sublabel: 'ROUTING',
+        type: 'routing', x: 260, y: 628, w: 230, h: 50,
+        description: 'Three-way conditional edge based on section_complete and iteration budget: (1) section_complete → generate_section_summary; (2) not complete AND iteration < max → generate_section_queries (loop); (3) budget exhausted → generate_section_summary.',
+        file: 'deep_research/routing.py',
+        inputs: ['section_complete', 'section_iteration', 'section_max_iterations'],
+        outputs: ['→ generate_section_queries  OR  → generate_section_summary'],
+        model: null,
+        rationale: 'Bounded loop with clear exit conditions. The iteration budget prevents infinite loops while still allowing targeted follow-up research when the coverage score is low.',
+      },
+      {
+        id: 'sec_summary', label: 'generate_section_summary', sublabel: 'LLM CALL',
+        type: 'llm', x: 260, y: 726, w: 300, h: 58,
+        description: 'Builds a top-N evidence snippet string. LLM produces: summary_text, strongest_sources, unresolved_questions, confidence. Assembles the parent-facing section_result: section_id, section_title, evidence, coverage_score, gaps, summary, confidence.',
+        file: 'deep_research/nodes/section_summary.py',
+        inputs: ['section_task', 'section_evidence', 'config.section_summary_model'],
+        outputs: ['section_summary', 'section_results: [{ section_id, evidence, summary, coverage_score, gaps, confidence }]'],
+        model: 'section_summary_model',
+        rationale: 'Parent graph needs one compact result per section (evidence + summary) for merge and for the writer. The summary captures key findings without re-passing full evidence.',
+      },
+      {
+        id: 'sw_end', label: 'END', type: 'terminal', shape: 'circle',
+        x: 260, y: 820, r: 28,
+        description: 'Section worker terminates and returns section_results to the parent graph via the operator.add reducer on ResearchState.section_results. All parallel workers accumulate their result safely.',
+        file: 'deep_research/section_graph.py',
+        inputs: ['section_results'],
+        outputs: ['→ parent.section_results  (operator.add reducer)'],
+        model: null,
+        rationale: 'operator.add on section_results ensures all parallel workers\' results are accumulated without overwriting. The parent waits until all workers have completed before continuing to merge.',
+      },
+    ],
+    edges: [
+      { from: 'sw_start',    to: 'gen_queries' },
+      { from: 'gen_queries', to: 'sec_search' },
+      { from: 'sec_search',  to: 'sec_norm' },
+      { from: 'sec_norm',    to: 'sec_coverage' },
+      { from: 'sec_coverage',to: 'sec_route' },
+      { from: 'sec_route',   to: 'sec_summary', label: 'complete / budget exhausted' },
+      { from: 'sec_route',   to: 'gen_queries', label: 'needs more research', loopBack: true },
+      { from: 'sec_summary', to: 'sw_end' },
+    ],
+  },
+
+  // ───────────────────────────────────────────────
+  // PHASE 1 LEGACY
+  // ───────────────────────────────────────────────
+  phase1: {
+    svgW: 580, svgH: 1260,
+    nodes: [
+      {
+        id: 'p1_start', label: 'START', type: 'terminal', shape: 'circle',
+        x: 260, y: 52, r: 28,
+        description: 'Entry point for Phase 1. Same initial state as Phase 2: {messages: [HumanMessage(query)]}.',
+        file: 'run.py',
+        inputs: ['messages: [HumanMessage(query)]'],
+        outputs: [],
+        model: null,
+        rationale: 'Phase 1 is the simpler single-agent path, useful for narrow topics, debugging, and quick iterations. No parallel section workers, no conflict resolution.',
+      },
+      {
+        id: 'p1_ingest', label: 'ingest_request', sublabel: 'UTILITY',
+        type: 'utility', x: 260, y: 160, w: 270, h: 58,
+        description: 'Identical to Phase 2 ingest_request: extracts query from latest HumanMessage, initialises all state fields.',
+        file: 'deep_research/nodes/ingest.py',
+        inputs: ['messages'],
+        outputs: ['query', 'iteration', 'max_iterations', '... (all state fields)'],
+        model: null,
+        rationale: 'Shared node between Phase 1 and Phase 2. Clean slate initialisation.',
+      },
+      {
+        id: 'p1_classify', label: 'classify_complexity', sublabel: 'LLM CALL',
+        type: 'llm', x: 260, y: 278, w: 270, h: 58,
+        description: 'Identical to Phase 2 classify_complexity. Classifies query and selects planner_model.',
+        file: 'deep_research/nodes/classify.py',
+        inputs: ['query', 'config.classifier_model'],
+        outputs: ['complexity', 'planner_model'],
+        model: 'gpt-4o-mini  (configurable: classifier_model)',
+        rationale: 'Consistent model-routing logic across both phases.',
+      },
+      {
+        id: 'p1_plan', label: 'plan_and_generate_queries', sublabel: 'LLM CALL',
+        type: 'llm', x: 260, y: 396, w: 300, h: 58,
+        description: 'Single planner call that produces BOTH report_outline AND search_queries in one go. On follow-up iterations (after coverage assessment), also consumes knowledge_gaps and seen_urls to generate targeted follow-up queries.',
+        file: 'deep_research/nodes/planner.py  (Phase 1 path)',
+        inputs: ['query', 'planner_model', 'knowledge_gaps  (iter > 0)', 'seen_urls  (iter > 0)'],
+        outputs: ['report_outline', 'search_queries'],
+        model: 'planner_model',
+        rationale: 'Simpler than Phase 2: one planner handles both structure and query generation. Good for narrow topics where section decomposition adds unnecessary overhead.',
+      },
+      {
+        id: 'p1_search', label: 'run_search', sublabel: 'UTILITY (Search API)',
+        type: 'utility', x: 260, y: 514, w: 260, h: 58,
+        description: 'Executes all generated search_queries via the configured provider (Gensee/Tavily/Exa). Appends new results to raw_search_results (accumulated across iterations).',
+        file: 'deep_research/nodes/search.py',
+        inputs: ['search_queries', 'config (search provider)', 'env (API keys)'],
+        outputs: ['raw_search_results'],
+        model: null,
+        rationale: 'Straightforward search execution for this iteration\'s queries.',
+      },
+      {
+        id: 'p1_norm', label: 'normalize_and_map_evidence', sublabel: 'LLM CALL',
+        type: 'llm', x: 260, y: 632, w: 310, h: 58,
+        description: 'Converts raw search results to structured evidence items; maps each to the appropriate report sections from report_outline; updates evidence_items and seen_urls.',
+        file: 'deep_research/nodes/normalize.py',
+        inputs: ['raw_search_results', 'report_outline', 'config.normalizer_model'],
+        outputs: ['evidence_items', 'seen_urls'],
+        model: 'normalizer_model',
+        rationale: 'Same normalisation principle as Phase 2 but applied globally across all sections in one pass, since there are no parallel workers.',
+      },
+      {
+        id: 'p1_coverage', label: 'assess_coverage', sublabel: 'LLM CALL',
+        type: 'llm', x: 260, y: 750, w: 260, h: 58,
+        description: 'LLM evaluates current evidence against report_outline. Returns coverage_status ("sufficient" or "insufficient") and a knowledge_gaps list used on the next planning iteration.',
+        file: 'deep_research/nodes/coverage.py',
+        inputs: ['evidence_items', 'report_outline', 'config.coverage_model'],
+        outputs: ['coverage_status', 'knowledge_gaps'],
+        model: 'coverage_model',
+        rationale: 'Explicit stopping logic for the iterative loop. Replaces "feel done" with a defined criterion. knowledge_gaps feed back into the next planning iteration to target missing areas.',
+      },
+      {
+        id: 'p1_route', label: 'route', sublabel: 'ROUTING',
+        type: 'routing', x: 260, y: 848, w: 200, h: 50,
+        description: 'Conditional edge: if coverage_status == "sufficient" OR iteration >= max_iterations → prepare_writer_context; else → plan_and_generate_queries (another research loop iteration).',
+        file: 'deep_research/routing.py',
+        inputs: ['coverage_status', 'iteration', 'max_iterations'],
+        outputs: ['→ plan_and_generate_queries  (loop)  OR  → prepare_writer_context'],
+        model: null,
+        rationale: 'Rule-based bounded loop. Iteration budget prevents infinite loops while ensuring sufficient coverage before writing.',
+      },
+      {
+        id: 'p1_writer_ctx', label: 'prepare_writer_context', sublabel: 'UTILITY',
+        type: 'utility', x: 260, y: 950, w: 280, h: 58,
+        description: 'Same as Phase 2: scores and selects the best evidence subset for the writer, ensuring balanced section coverage. Falls back to evidence_items (Phase 1 field) since there is no merged_evidence.',
+        file: 'deep_research/nodes/writer_context.py',
+        inputs: ['evidence_items', 'report_outline', 'config.writer_context_max_items'],
+        outputs: ['writer_evidence_subset'],
+        model: null,
+        rationale: 'Limits context size for writer; picks best sources. Shared logic with Phase 2 through a fallback path in the same file.',
+      },
+      {
+        id: 'p1_write', label: 'write_report', sublabel: 'LLM CALL',
+        type: 'llm', x: 260, y: 1068, w: 260, h: 58,
+        description: 'Basic / enhanced mode: single writer prompt with report_outline, writer_evidence_subset, knowledge_gaps, and coverage_status. No per-section drafts — one prompt, one pass. Suitable for narrower topics that fit in context.',
+        file: 'deep_research/nodes/writer.py  (Phase 1 path)',
+        inputs: ['writer_evidence_subset', 'report_outline', 'knowledge_gaps', 'coverage_status'],
+        outputs: ['report_markdown', 'sources'],
+        model: 'writer_model',
+        rationale: 'Simpler writing path: one prompt with full context. Works well for narrower topics where the full evidence fits and section decomposition is unnecessary.',
+      },
+      {
+        id: 'p1_finalize', label: 'finalize_messages', sublabel: 'UTILITY',
+        type: 'utility', x: 260, y: 1176, w: 270, h: 58,
+        description: 'Wraps report_markdown in an AIMessage and appends to messages.',
+        file: 'deep_research/nodes/finalize.py',
+        inputs: ['report_markdown'],
+        outputs: ['messages  (AIMessage appended)'],
+        model: null,
+        rationale: 'Same as Phase 2. Chat-compatible output.',
+      },
+      {
+        id: 'p1_end', label: 'END', type: 'terminal', shape: 'circle',
+        x: 260, y: 1240, r: 22,
+        description: 'Graph terminates. Report available in state.',
+        file: 'run.py',
+        inputs: ['messages', 'report_markdown'],
+        outputs: [],
+        model: null,
+        rationale: 'Terminal node signals LangGraph that execution is complete.',
+      },
+    ],
+    edges: [
+      { from: 'p1_start',      to: 'p1_ingest' },
+      { from: 'p1_ingest',     to: 'p1_classify' },
+      { from: 'p1_classify',   to: 'p1_plan' },
+      { from: 'p1_plan',       to: 'p1_search' },
+      { from: 'p1_search',     to: 'p1_norm' },
+      { from: 'p1_norm',       to: 'p1_coverage' },
+      { from: 'p1_coverage',   to: 'p1_route' },
+      { from: 'p1_route',      to: 'p1_plan',       label: 'insufficient', loopBack: true },
+      { from: 'p1_route',      to: 'p1_writer_ctx', label: 'sufficient' },
+      { from: 'p1_writer_ctx', to: 'p1_write' },
+      { from: 'p1_write',      to: 'p1_finalize' },
+      { from: 'p1_finalize',   to: 'p1_end' },
+    ],
+  },
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RENDERER
+// ─────────────────────────────────────────────────────────────────────────────
+
+const SVG_NS = 'http://www.w3.org/2000/svg';
+let currentGraph = 'phase2';
+let selectedNodeId = null;
+
+function svgEl(tag) { return document.createElementNS(SVG_NS, tag); }
+
+function nodeMap(gKey) {
+  const m = {};
+  GRAPHS[gKey].nodes.forEach(n => { m[n.id] = n; });
+  return m;
+}
+
+function edgePoint(node, dir) {
+  if (node.shape === 'circle') {
+    const r = node.r || 30;
+    if (dir === 'top')    return { x: node.x,     y: node.y - r };
+    if (dir === 'bottom') return { x: node.x,     y: node.y + r };
+    if (dir === 'left')   return { x: node.x - r, y: node.y     };
+    if (dir === 'right')  return { x: node.x + r, y: node.y     };
+  }
+  const hw = (node.w || 260) / 2, hh = (node.h || 58) / 2;
+  if (dir === 'top')    return { x: node.x,      y: node.y - hh };
+  if (dir === 'bottom') return { x: node.x,      y: node.y + hh };
+  if (dir === 'left')   return { x: node.x - hw, y: node.y      };
+  if (dir === 'right')  return { x: node.x + hw, y: node.y      };
+}
+
+function drawGraph(gKey) {
+  const g   = GRAPHS[gKey];
+  const svg = document.getElementById('main-svg');
+  svg.innerHTML = '';
+  svg.setAttribute('width',   g.svgW);
+  svg.setAttribute('height',  g.svgH);
+  svg.setAttribute('viewBox', `0 0 ${g.svgW} ${g.svgH}`);
+
+  const nm = nodeMap(gKey);
+
+  // ── Defs ──────────────────────────────────────────────────────────────────
+  const defs = svgEl('defs');
+
+  // Background grid pattern
+  const patternEl = svgEl('pattern');
+  patternEl.setAttribute('id', 'grid');
+  patternEl.setAttribute('width', '30');
+  patternEl.setAttribute('height', '30');
+  patternEl.setAttribute('patternUnits', 'userSpaceOnUse');
+  const pLine1 = svgEl('line');
+  pLine1.setAttribute('x1', '0'); pLine1.setAttribute('y1', '0');
+  pLine1.setAttribute('x2', '30'); pLine1.setAttribute('y2', '0');
+  pLine1.setAttribute('stroke', '#1C2A40'); pLine1.setAttribute('stroke-width', '0.5');
+  const pLine2 = svgEl('line');
+  pLine2.setAttribute('x1', '0'); pLine2.setAttribute('y1', '0');
+  pLine2.setAttribute('x2', '0'); pLine2.setAttribute('y2', '30');
+  pLine2.setAttribute('stroke', '#1C2A40'); pLine2.setAttribute('stroke-width', '0.5');
+  patternEl.appendChild(pLine1);
+  patternEl.appendChild(pLine2);
+  defs.appendChild(patternEl);
+
+  // Gradients + glow filters for each node
+  g.nodes.forEach(n => {
+    const c = TYPE_COLORS[n.type];
+    const grad = svgEl('linearGradient');
+    grad.setAttribute('id', `gr_${n.id}`);
+    grad.setAttribute('x1', '0%'); grad.setAttribute('y1', '0%');
+    grad.setAttribute('x2', '100%'); grad.setAttribute('y2', '100%');
+    const s0 = svgEl('stop');
+    s0.setAttribute('offset', '0%');
+    s0.setAttribute('stop-color', c);
+    s0.setAttribute('stop-opacity', '1');
+    const s1 = svgEl('stop');
+    s1.setAttribute('offset', '100%');
+    s1.setAttribute('stop-color', shadeColor(c, -25));
+    s1.setAttribute('stop-opacity', '1');
+    grad.appendChild(s0); grad.appendChild(s1);
+    defs.appendChild(grad);
+
+    const filt = svgEl('filter');
+    filt.setAttribute('id', `glow_${n.id}`);
+    filt.setAttribute('x', '-30%'); filt.setAttribute('y', '-30%');
+    filt.setAttribute('width', '160%'); filt.setAttribute('height', '160%');
+    const blur = svgEl('feGaussianBlur');
+    blur.setAttribute('in', 'SourceGraphic');
+    blur.setAttribute('stdDeviation', '6');
+    blur.setAttribute('result', 'blur');
+    const merge = svgEl('feMerge');
+    const mn1 = svgEl('feMergeNode'); mn1.setAttribute('in', 'blur');
+    const mn2 = svgEl('feMergeNode'); mn2.setAttribute('in', 'SourceGraphic');
+    merge.appendChild(mn1); merge.appendChild(mn2);
+    filt.appendChild(blur); filt.appendChild(merge);
+    defs.appendChild(filt);
+  });
+
+  // Arrow markers
+  ['#374151', '#B45309', '#6EE7B7'].forEach((col, i) => {
+    const ids = ['arr', 'arr_dash', 'arr_green'][i];
+    const m = svgEl('marker');
+    m.setAttribute('id', ids);
+    m.setAttribute('markerWidth', '9');
+    m.setAttribute('markerHeight', '7');
+    m.setAttribute('refX', '8');
+    m.setAttribute('refY', '3.5');
+    m.setAttribute('orient', 'auto');
+    const poly = svgEl('polygon');
+    poly.setAttribute('points', '0 0, 9 3.5, 0 7');
+    poly.setAttribute('fill', col);
+    m.appendChild(poly);
+    defs.appendChild(m);
+  });
+
+  svg.appendChild(defs);
+
+  // ── Grid background ────────────────────────────────────────────────────────
+  const bgRect = svgEl('rect');
+  bgRect.setAttribute('width', g.svgW);
+  bgRect.setAttribute('height', g.svgH);
+  bgRect.setAttribute('fill', 'url(#grid)');
+  svg.appendChild(bgRect);
+
+  // ── Edges ──────────────────────────────────────────────────────────────────
+  const edgeLayer = svgEl('g');
+
+  g.edges.forEach(edge => {
+    const fn = nm[edge.from], tn = nm[edge.to];
+    if (!fn || !tn) return;
+    const eG = svgEl('g');
+    const isDash = !!edge.dashed;
+    const stroke = isDash ? '#B45309' : '#2D3F58';
+    const marker = isDash ? 'url(#arr_dash)' : 'url(#arr)';
+
+    if (edge.loopBack) {
+      // Curved arrow going back up on the left side
+      const fp = edgePoint(fn, 'left');
+      const tp = edgePoint(tn, 'left');
+      const cx1 = fp.x - 110, cy1 = fp.y;
+      const cx2 = tp.x - 110, cy2 = tp.y;
+      const path = svgEl('path');
+      path.setAttribute('d', `M ${fp.x} ${fp.y} C ${cx1} ${cy1} ${cx2} ${cy2} ${tp.x} ${tp.y}`);
+      path.setAttribute('fill', 'none');
+      path.setAttribute('stroke', '#B45309');
+      path.setAttribute('stroke-width', '1.5');
+      path.setAttribute('stroke-dasharray', '5,3');
+      path.setAttribute('marker-end', 'url(#arr_dash)');
+      eG.appendChild(path);
+
+      if (edge.label) {
+        const lx = Math.min(fp.x, tp.x) - 120;
+        const ly = (fp.y + tp.y) / 2;
+        const lt = svgEl('text');
+        lt.setAttribute('x', lx);
+        lt.setAttribute('y', ly);
+        lt.setAttribute('text-anchor', 'middle');
+        lt.setAttribute('font-family', 'Syne, sans-serif');
+        lt.setAttribute('font-size', '10');
+        lt.setAttribute('font-weight', '600');
+        lt.setAttribute('fill', '#B45309');
+        lt.textContent = edge.label;
+        eG.appendChild(lt);
+      }
+
+    } else if (edge.curveBack) {
+      // conflict_res → writer_ctx curves from right back to left
+      const fp = edgePoint(fn, 'bottom');
+      const tp = edgePoint(tn, 'right');
+      const path = svgEl('path');
+      path.setAttribute('d', `M ${fp.x} ${fp.y} C ${fp.x} ${fp.y + 50} ${tp.x + 70} ${tp.y} ${tp.x} ${tp.y}`);
+      path.setAttribute('fill', 'none');
+      path.setAttribute('stroke', '#9F1239');
+      path.setAttribute('stroke-width', '1.5');
+      path.setAttribute('marker-end', 'url(#arr)');
+      eG.appendChild(path);
+
+    } else if (edge.bend === 'right') {
+      // conflict_route → conflict_res goes to the right
+      const fp = edgePoint(fn, 'right');
+      const tp = edgePoint(tn, 'top');
+      const path = svgEl('path');
+      const midX = fp.x + 60;
+      path.setAttribute('d', `M ${fp.x} ${fp.y} C ${midX} ${fp.y} ${midX} ${tp.y - 30} ${tp.x} ${tp.y}`);
+      path.setAttribute('fill', 'none');
+      path.setAttribute('stroke', '#B45309');
+      path.setAttribute('stroke-width', '1.5');
+      path.setAttribute('stroke-dasharray', '5,3');
+      path.setAttribute('marker-end', 'url(#arr_dash)');
+      eG.appendChild(path);
+
+      if (edge.label) {
+        const lx = fp.x + 55;
+        const ly = fp.y + (tp.y - fp.y) * 0.35;
+        const lt = svgEl('text');
+        lt.setAttribute('x', lx);
+        lt.setAttribute('y', ly);
+        lt.setAttribute('font-family', 'Syne, sans-serif');
+        lt.setAttribute('font-size', '10');
+        lt.setAttribute('font-weight', '600');
+        lt.setAttribute('fill', '#B45309');
+        lt.textContent = edge.label;
+        eG.appendChild(lt);
+      }
+
+    } else {
+      // Standard top-to-bottom edge
+      const fp = edgePoint(fn, 'bottom');
+      const tp = edgePoint(tn, 'top');
+      const path = svgEl('path');
+      if (Math.abs(fp.x - tp.x) < 4) {
+        path.setAttribute('d', `M ${fp.x} ${fp.y} L ${tp.x} ${tp.y}`);
+      } else {
+        const my = (fp.y + tp.y) / 2;
+        path.setAttribute('d', `M ${fp.x} ${fp.y} C ${fp.x} ${my} ${tp.x} ${my} ${tp.x} ${tp.y}`);
+      }
+      path.setAttribute('fill', 'none');
+      path.setAttribute('stroke', stroke);
+      path.setAttribute('stroke-width', isDash ? '1.5' : '2');
+      if (isDash) path.setAttribute('stroke-dasharray', '5,3');
+      path.setAttribute('marker-end', marker);
+      eG.appendChild(path);
+
+      if (edge.label) {
+        const lx = (fp.x + tp.x) / 2;
+        const ly = (fp.y + tp.y) / 2 - 5;
+        const lt = svgEl('text');
+        lt.setAttribute('x', lx);
+        lt.setAttribute('y', ly);
+        lt.setAttribute('text-anchor', 'middle');
+        lt.setAttribute('font-family', 'Syne, sans-serif');
+        lt.setAttribute('font-size', '10');
+        lt.setAttribute('font-weight', '600');
+        lt.setAttribute('fill', isDash ? '#B45309' : '#4B6480');
+        lt.textContent = edge.label;
+        eG.appendChild(lt);
+      }
+    }
+
+    edgeLayer.appendChild(eG);
+  });
+
+  svg.appendChild(edgeLayer);
+
+  // ── Nodes ──────────────────────────────────────────────────────────────────
+  const nodeLayer = svgEl('g');
+
+  g.nodes.forEach(node => {
+    const ng  = svgEl('g');
+    const col = TYPE_COLORS[node.type];
+    ng.setAttribute('data-id', node.id);
+    ng.setAttribute('style', 'cursor:pointer');
+
+    if (node.shape === 'circle') {
+      const r = node.r || 28;
+
+      // Shadow
+      const sh = svgEl('circle');
+      sh.setAttribute('cx', node.x + 3); sh.setAttribute('cy', node.y + 4);
+      sh.setAttribute('r', r);
+      sh.setAttribute('fill', 'rgba(0,0,0,0.5)');
+      ng.appendChild(sh);
+
+      // Glow ring (hidden by default)
+      const ring = svgEl('circle');
+      ring.setAttribute('cx', node.x); ring.setAttribute('cy', node.y);
+      ring.setAttribute('r', r + 8);
+      ring.setAttribute('fill', 'none');
+      ring.setAttribute('stroke', col);
+      ring.setAttribute('stroke-width', '2');
+      ring.setAttribute('opacity', '0');
+      ring.setAttribute('class', 'ring');
+      ring.setAttribute('filter', `url(#glow_${node.id})`);
+      ng.appendChild(ring);
+
+      // Main circle
+      const circ = svgEl('circle');
+      circ.setAttribute('cx', node.x); circ.setAttribute('cy', node.y);
+      circ.setAttribute('r', r);
+      circ.setAttribute('fill', `url(#gr_${node.id})`);
+      circ.setAttribute('stroke', col);
+      circ.setAttribute('stroke-width', '2');
+      ng.appendChild(circ);
+
+      const txt = svgEl('text');
+      txt.setAttribute('x', node.x); txt.setAttribute('y', node.y + 5);
+      txt.setAttribute('text-anchor', 'middle');
+      txt.setAttribute('font-family', 'JetBrains Mono, monospace');
+      txt.setAttribute('font-size', node.r && node.r > 30 ? '11' : '12');
+      txt.setAttribute('font-weight', '700');
+      txt.setAttribute('fill', 'white');
+      txt.setAttribute('pointer-events', 'none');
+      txt.textContent = node.label;
+      if (node.r && node.r > 30) {
+        // wrap for longer labels
+        txt.setAttribute('y', node.y + 4);
+        txt.setAttribute('font-size', '10');
+      }
+      ng.appendChild(txt);
+
+    } else {
+      const hw = node.w / 2, hh = node.h / 2;
+      const lx = node.x - hw, ly = node.y - hh;
+
+      // Shadow
+      const sh = svgEl('rect');
+      sh.setAttribute('x', lx + 3); sh.setAttribute('y', ly + 4);
+      sh.setAttribute('width', node.w); sh.setAttribute('height', node.h);
+      sh.setAttribute('rx', '10'); sh.setAttribute('fill', 'rgba(0,0,0,0.45)');
+      ng.appendChild(sh);
+
+      // Glow ring
+      const ring = svgEl('rect');
+      ring.setAttribute('x', lx - 5); ring.setAttribute('y', ly - 5);
+      ring.setAttribute('width', node.w + 10); ring.setAttribute('height', node.h + 10);
+      ring.setAttribute('rx', '14');
+      ring.setAttribute('fill', 'none');
+      ring.setAttribute('stroke', col);
+      ring.setAttribute('stroke-width', '2');
+      ring.setAttribute('opacity', '0');
+      ring.setAttribute('class', 'ring');
+      ring.setAttribute('filter', `url(#glow_${node.id})`);
+      ng.appendChild(ring);
+
+      // Main rect
+      const rect = svgEl('rect');
+      rect.setAttribute('x', lx); rect.setAttribute('y', ly);
+      rect.setAttribute('width', node.w); rect.setAttribute('height', node.h);
+      rect.setAttribute('rx', '10');
+      rect.setAttribute('fill', `url(#gr_${node.id})`);
+      rect.setAttribute('stroke', col);
+      rect.setAttribute('stroke-width', '1.5');
+      ng.appendChild(rect);
+
+      // Top highlight strip
+      const hl = svgEl('rect');
+      hl.setAttribute('x', lx + 12); hl.setAttribute('y', ly + 1);
+      hl.setAttribute('width', node.w - 24); hl.setAttribute('height', '2');
+      hl.setAttribute('rx', '1');
+      hl.setAttribute('fill', 'rgba(255,255,255,0.12)');
+      hl.setAttribute('pointer-events', 'none');
+      ng.appendChild(hl);
+
+      // HITL badge
+      if (node.hitl) {
+        const badgeW = 60, badgeH = 17;
+        const bx = lx + node.w - badgeW - 6;
+        const by = ly - badgeH / 2 - 2;
+        const br = svgEl('rect');
+        br.setAttribute('x', bx); br.setAttribute('y', by);
+        br.setAttribute('width', badgeW); br.setAttribute('height', badgeH);
+        br.setAttribute('rx', '8');
+        br.setAttribute('fill', '#78350F');
+        br.setAttribute('stroke', '#FCD34D');
+        br.setAttribute('stroke-width', '1');
+        ng.appendChild(br);
+        const bt = svgEl('text');
+        bt.setAttribute('x', bx + badgeW / 2); bt.setAttribute('y', by + 11);
+        bt.setAttribute('text-anchor', 'middle');
+        bt.setAttribute('font-family', 'Syne, sans-serif');
+        bt.setAttribute('font-size', '8');
+        bt.setAttribute('font-weight', '800');
+        bt.setAttribute('fill', '#FCD34D');
+        bt.setAttribute('letter-spacing', '0.06em');
+        bt.setAttribute('pointer-events', 'none');
+        bt.textContent = '⏸ HITL';
+        ng.appendChild(bt);
+      }
+
+      // Sublabel
+      if (node.sublabel) {
+        const sl = svgEl('text');
+        sl.setAttribute('x', lx + 11); sl.setAttribute('y', ly + 15);
+        sl.setAttribute('font-family', 'Syne, sans-serif');
+        sl.setAttribute('font-size', '8');
+        sl.setAttribute('font-weight', '700');
+        sl.setAttribute('fill', 'rgba(255,255,255,0.45)');
+        sl.setAttribute('letter-spacing', '0.1em');
+        sl.setAttribute('pointer-events', 'none');
+        sl.textContent = node.sublabel;
+        ng.appendChild(sl);
+      }
+
+      // Main label
+      const mainLabel = svgEl('text');
+      const labelY = node.sublabel ? ly + 36 : ly + (node.h / 2) + 5;
+      mainLabel.setAttribute('x', node.x);
+      mainLabel.setAttribute('y', labelY);
+      mainLabel.setAttribute('text-anchor', 'middle');
+      mainLabel.setAttribute('font-family', 'JetBrains Mono, monospace');
+      // Scale font down for very long labels
+      const fSize = node.label.length > 28 ? '11' : node.label.length > 20 ? '12' : '13';
+      mainLabel.setAttribute('font-size', fSize);
+      mainLabel.setAttribute('font-weight', '600');
+      mainLabel.setAttribute('fill', 'white');
+      mainLabel.setAttribute('pointer-events', 'none');
+      mainLabel.textContent = node.label;
+      ng.appendChild(mainLabel);
+    }
+
+    // Make nodes focusable and accessible
+    ng.setAttribute('tabindex', '0');
+    ng.setAttribute('role', 'button');
+    ng.setAttribute('aria-label', node.label);
+
+    // Event handlers
+    ng.addEventListener('click', e => { e.stopPropagation(); selectNode(node.id, gKey); });
+    ng.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectNode(node.id, gKey); } });
+    ng.addEventListener('mouseenter', () => {
+      const ring = ng.querySelector('.ring');
+      if (ring) ring.setAttribute('opacity', '0.7');
+    });
+    ng.addEventListener('mouseleave', () => {
+      if (selectedNodeId !== node.id) {
+        const ring = ng.querySelector('.ring');
+        if (ring) ring.setAttribute('opacity', '0');
+      }
+    });
+
+    nodeLayer.appendChild(ng);
+  });
+
+  svg.appendChild(nodeLayer);
+}
+
+function selectNode(id, gKey) {
+  // Deselect old
+  if (selectedNodeId) {
+    const old = document.querySelector(`[data-id="${selectedNodeId}"] .ring`);
+    if (old) old.setAttribute('opacity', '0');
+  }
+  selectedNodeId = id;
+  const ring = document.querySelector(`[data-id="${id}"] .ring`);
+  if (ring) ring.setAttribute('opacity', '1');
+
+  const node = GRAPHS[gKey].nodes.find(n => n.id === id);
+  if (node) renderDetail(node);
+}
+
+function renderDetail(node) {
+  const panel  = document.getElementById('detail-panel');
+  const col    = TYPE_COLORS[node.type];
+  const typeL  = TYPE_LABELS[node.type] || node.type;
+
+  panel.innerHTML = '';
+  const wrap = document.createElement('div');
+  wrap.id = 'detail-content';
+
+  // Type badge
+  const badge = document.createElement('div');
+  badge.className = 'detail-type-badge';
+  badge.style.cssText = `background:${col}18;border-color:${col}44;color:${col}`;
+  badge.textContent = typeL;
+  wrap.appendChild(badge);
+
+  // Name
+  const name = document.createElement('div');
+  name.className = 'detail-name';
+  name.textContent = node.label;
+  wrap.appendChild(name);
+
+  // File
+  if (node.file) {
+    const file = document.createElement('div');
+    file.className = 'detail-file';
+    file.textContent = '📄 ' + node.file;
+    wrap.appendChild(file);
+  }
+
+  wrap.appendChild(hr());
+
+  // Description
+  section(wrap, 'What It Does', () => {
+    const d = document.createElement('div');
+    d.className = 'detail-description';
+    d.textContent = node.description || '';
+    return [d];
+  });
+
+  // Inputs
+  if (node.inputs && node.inputs.length > 0) {
+    section(wrap, '↓ Reads from State', () => {
+      const g = document.createElement('div');
+      g.className = 'fields-grid';
+      node.inputs.forEach(i => {
+        const t = document.createElement('span');
+        t.className = 'field-tag input';
+        t.textContent = i;
+        g.appendChild(t);
+      });
+      return [g];
+    });
+  }
+
+  // Outputs
+  if (node.outputs && node.outputs.length > 0) {
+    section(wrap, '↑ Writes to State', () => {
+      const g = document.createElement('div');
+      g.className = 'fields-grid';
+      node.outputs.forEach(o => {
+        const t = document.createElement('span');
+        t.className = 'field-tag output';
+        t.textContent = o;
+        g.appendChild(t);
+      });
+      return [g];
+    });
+  }
+
+  // Model
+  if (node.model) {
+    section(wrap, 'LLM Model', () => {
+      const b = document.createElement('div');
+      b.className = 'model-badge';
+      b.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" style="flex-shrink:0"><path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M2 17L12 22L22 17" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M2 12L12 17L22 12" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>${node.model}`;
+      return [b];
+    });
+  }
+
+  // Rationale
+  if (node.rationale) {
+    section(wrap, 'Why This Node?', () => {
+      const b = document.createElement('div');
+      b.className = 'rationale-box';
+      b.textContent = node.rationale;
+      return [b];
+    });
+  }
+
+  panel.appendChild(wrap);
+}
+
+function section(parent, title, contentFn) {
+  const s = document.createElement('div');
+  const t = document.createElement('div');
+  t.className = 'detail-section-title';
+  t.textContent = title;
+  s.appendChild(t);
+  contentFn().forEach(el => s.appendChild(el));
+  parent.appendChild(s);
+}
+
+function hr() {
+  const h = document.createElement('hr');
+  h.className = 'detail-hr';
+  return h;
+}
+
+function shadeColor(hex, amt) {
+  let col = hex.replace('#', '');
+  if (col.length === 3) col = col.split('').map(c => c + c).join('');
+  const num = parseInt(col, 16);
+  const r = Math.min(255, Math.max(0, (num >> 16) + amt));
+  const g = Math.min(255, Math.max(0, ((num >> 8) & 0xff) + amt));
+  const b = Math.min(255, Math.max(0, (num & 0xff) + amt));
+  return '#' + [r, g, b].map(v => v.toString(16).padStart(2, '0')).join('');
+}
+
+// ── Tab switching ────────────────────────────────────────────────────────────
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentGraph = btn.dataset.graph;
+    selectedNodeId = null;
+
+    const panel = document.getElementById('detail-panel');
+    panel.innerHTML = `
+      <div class="detail-placeholder">
+        <svg width="44" height="44" viewBox="0 0 24 24" fill="none" opacity="0.3">
+          <circle cx="11" cy="11" r="8" stroke="#C8D6E8" stroke-width="2"/>
+          <path d="M21 21L16.65 16.65" stroke="#C8D6E8" stroke-width="2" stroke-linecap="round"/>
+          <line x1="11" y1="8" x2="11" y2="14" stroke="#C8D6E8" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+        <p>Click any node to explore<br>its inputs, outputs &amp; rationale</p>
+      </div>`;
+
+    drawGraph(currentGraph);
+  });
+});
+
+// Deselect on background click
+document.getElementById('graph-container').addEventListener('click', () => {
+  if (!selectedNodeId) return;
+  const ring = document.querySelector(`[data-id="${selectedNodeId}"] .ring`);
+  if (ring) ring.setAttribute('opacity', '0');
+  selectedNodeId = null;
+  const panel = document.getElementById('detail-panel');
+  panel.innerHTML = `
+    <div class="detail-placeholder">
+      <svg width="44" height="44" viewBox="0 0 24 24" fill="none" opacity="0.3">
+        <circle cx="11" cy="11" r="8" stroke="#C8D6E8" stroke-width="2"/>
+        <path d="M21 21L16.65 16.65" stroke="#C8D6E8" stroke-width="2" stroke-linecap="round"/>
+        <line x1="11" y1="8" x2="11" y2="14" stroke="#C8D6E8" stroke-width="2" stroke-linecap="round"/>
+      </svg>
+      <p>Click any node to explore<br>its inputs, outputs &amp; rationale</p>
+    </div>`;
+});
+
+// ── Init ─────────────────────────────────────────────────────────────────────
+drawGraph('phase2');
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// TOP-NAV SECTION SWITCHER
+// ═══════════════════════════════════════════════════════════════════════════
+
+document.querySelectorAll('.top-nav-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.top-nav-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    const target = btn.dataset.section;
+    document.querySelectorAll('.page-section').forEach(s => s.classList.remove('active'));
+    document.getElementById('sec-' + target).classList.add('active');
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ARCHITECTURE DATA
+// ═══════════════════════════════════════════════════════════════════════════
+
+const ARCH_CATEGORIES = [
+  {
+    icon: '🎯', color: '#3B82F6', title: 'Design Philosophy',
+    cards: [
+      {
+        q: 'Why iterative research instead of one-shot search?',
+        badge: 'CORE DESIGN', badgeColor: '#3B82F6',
+        body: `<p><strong>Problem with one-shot:</strong> Query → web search → summarize → write report. One weak search makes the whole report weak; no way to notice missing coverage or recover.</p>
+<p><strong>Solution:</strong> Add an iterative loop: plan queries → search → normalize → assess coverage → <strong>repeat if needed</strong> → write. Follow-up rounds and explicit coverage checks (0–10 score) make the system usable.</p>
+<p><strong>Stopping:</strong> Coverage check returns <code>section_complete</code> or <code>coverage_status</code>. If sufficient → write. If iteration budget exhausted → write with what we have. Never loops forever.</p>`
+      },
+      {
+        q: 'Why section workers instead of a single agent loop?',
+        badge: 'ARCHITECTURE', badgeColor: '#7C3AED',
+        body: `<p><strong>Phase 1 (single agent):</strong> One planner generates all queries for all sections; one big search/normalize/coverage loop. Fine for narrow topics, hard to tune for broad ones.</p>
+<p><strong>Phase 2 (section workers):</strong> Each report section gets its own mini graph: section-specific queries → search → normalize → coverage → loop or summarize. Benefits: narrower, targeted research per section; parallelism (via LangGraph <code>Send</code>); natural fit for report structure.</p>
+<p><strong>Cost:</strong> Merge, dedup, and conflict handling become necessary — but they're explicit and debuggable.</p>`
+      },
+      {
+        q: 'Why LangGraph over LCEL, legacy chains, or ReAct?',
+        badge: 'FRAMEWORK', badgeColor: '#0D9488',
+        body: `<p><strong>The workflow needs:</strong> loops (research until coverage), branching (conflict vs no conflict), fan-out (parallel section workers), shared state with merge semantics, optional human interruption.</p>
+<p><strong>LCEL/Chains:</strong> Great for A→B→C pipelines. Don't natively model conditional edges, bounded loops, or fan-out with typed state and reducers.</p>
+<p><strong>ReAct:</strong> Model-driven control flow ("what to do next"). We want <em>rule-based</em> routing (if coverage sufficient → write), predictable pipeline shape, and parallel workers — none of which are natural ReAct patterns.</p>
+<p><strong>LangGraph gives us:</strong> Explicit rule-based control flow, loops/branches as graph edges, parallel subgraphs with merge semantics, and interrupt/resume for HITL — without encoding all of that in a single opaque agent loop.</p>`
+      },
+      {
+        q: 'Why dedicate a node to evidence normalization and writer-context prep?',
+        badge: 'QUALITY', badgeColor: '#0D9488',
+        body: `<p><strong>Raw search → writer:</strong> Noisy (duplicates, shallow snippets, irrelevant hits). Asking the writer to clean at generation time is expensive and unreliable.</p>
+<p><strong>Normalization node:</strong> Structured output (Pydantic model) extracts url, title, snippet, relevance_score, credibility, source_type, recency, novelty_flag, is_primary, is_redundant. Filters by relevance ≥ 5. Clean evidence improves quality more than many prompt tweaks.</p>
+<p><strong>Writer-context prep:</strong> Ranks evidence, ensures at least one source per section, caps at <code>writer_context_max_items</code>, optionally fetches full page content. Prevents context overflow and focuses the writer on the best sources.</p>`
+      }
+    ]
+  },
+  {
+    icon: '🧮', color: '#7C3AED', title: 'State Design',
+    cards: [
+      {
+        q: 'Why TypedDict for state, not a Pydantic model?',
+        badge: 'STATE', badgeColor: '#7C3AED',
+        body: `<p><strong>LangGraph contract:</strong> <code>StateGraph(ResearchState)</code> expects a state type that supports <strong>reducers</strong> via <code>Annotated[Type, reducer]</code>. TypedDict + Annotated is the natural fit.</p>
+<p><strong>Partial updates:</strong> <code>total=False</code> lets each node return only the keys it changes — no need for default values for every field. Pydantic would require defaults and careful "not set vs empty" handling.</p>
+<p><strong>Checkpointer:</strong> TypedDict state is a plain dict of JSON-serializable values. No custom serialization needed for interrupt/resume.</p>
+<p><strong>Pydantic IS used — inside nodes:</strong> <code>ClassifyOutput</code>, <code>ConflictOutput</code>, <code>SectionEvidenceItem</code>, <code>SectionCoverageOutput</code> for LLM structured outputs. Rule: <strong>state = TypedDict</strong>; <strong>LLM outputs = Pydantic</strong>.</p>`
+      },
+      {
+        q: 'What are reducers and why do they matter for parallel workers?',
+        badge: 'STATE', badgeColor: '#7C3AED',
+        body: `<p>When multiple nodes or <strong>parallel</strong> section workers write to the same state key, LangGraph must merge those updates. Default is "last write wins" — which would be wrong for most shared keys.</p>
+        <table class="data-table" style="margin-top:10px">
+          <tr><th>Reducer</th><th>Intent</th><th>Used for</th></tr>
+          <tr><td>operator.add</td><td>Append list items</td><td>raw_search_results, evidence_items, section_results, section_evidence</td></tr>
+          <tr><td>_merge_sets</td><td>Union of sets</td><td>seen_urls, global_seen_urls, section_seen_urls</td></tr>
+          <tr><td>_keep_first</td><td>First non-empty wins</td><td>query, section_max_iterations (parallel workers must not overwrite)</td></tr>
+          <tr><td>add_messages</td><td>Append messages</td><td>messages (conversation history)</td></tr>
+        </table>
+        <p style="margin-top:10px">Without these, parallel section workers would overwrite each other's <code>section_results</code> or <code>query</code>.</p>`
+      },
+      {
+        q: 'Why does ResearchState have so many fields?',
+        badge: 'STATE', badgeColor: '#7C3AED',
+        body: `<p>Each field exists so the agent can make <strong>explicit decisions</strong> instead of re-inferring from a minimal state. The graph needs to remember:</p>
+<ul>
+<li>Normalized query, complexity, report outline (for planner and writer)</li>
+<li>Search queries, raw results, normalized evidence, seen URLs (for iterative loop)</li>
+<li>Coverage status, knowledge gaps, iteration counts (for routing)</li>
+<li>Section tasks, section results, merged evidence, conflicts (for Phase 2 workflow)</li>
+<li>Section summaries, writer evidence subset, section drafts (for writer)</li>
+<li>Report markdown, sources, research_trace (for output and observability)</li>
+</ul>
+<p>Large schema by design — keeps control flow and data flow clear and debuggable.</p>`
+      }
+    ]
+  },
+  {
+    icon: '🔷', color: '#B45309', title: 'Loops & Routing',
+    cards: [
+      {
+        q: 'Where are the cycles (loops) in the graph?',
+        badge: 'ROUTING', badgeColor: '#B45309',
+        body: `<p>There are <strong>two</strong> loops in the system:</p>
+<p><strong>Phase 1 main graph:</strong> plan_and_generate_queries → run_search → normalize_and_map_evidence → assess_coverage → conditional edge → either prepare_writer_context (exit) or back to plan_and_generate_queries (loop).</p>
+<p><strong>Section worker subgraph:</strong> generate_section_queries → section_search → section_normalize → section_assess_coverage → conditional edge → either generate_section_summary (exit) or back to generate_section_queries (loop).</p>
+<p><strong>Phase 2 main graph:</strong> No cycle in the main graph. All loops live inside section workers. The fan-out (dispatch_sections → N workers) is not a cycle — each worker runs once, then returns results to the parent.</p>`
+      },
+      {
+        q: 'How are infinite loops prevented (cycle breakers)?',
+        badge: 'ROUTING', badgeColor: '#B45309',
+        body: `<p>No separate "cycle breaker" node. Loops are broken by <strong>conditional edges</strong> + <strong>iteration caps</strong> in routing functions.</p>
+<p><strong>Phase 1 router:</strong> After assess_coverage, returns <code>"prepare_writer_context"</code> if <code>coverage_status == "sufficient"</code> OR <code>iteration >= max_iterations</code>. Otherwise returns <code>"plan_and_generate_queries"</code>. Cap default: 3.</p>
+<p><strong>Section worker router:</strong> After section_assess_coverage, returns <code>"generate_section_summary"</code> if <code>section_complete</code> OR <code>section_iteration >= section_max_iterations</code>. Otherwise loops. Cap default: 3.</p>
+<p><strong>Detect at runtime:</strong> We don't — we prevent by design. For defense-in-depth against bugs, add a per-run max-step guard or run timeout in the driver.</p>`
+      },
+      {
+        q: 'All routing functions explained',
+        badge: 'ROUTING', badgeColor: '#B45309',
+        body: `<p>All routing is <strong>rule-based</strong> (state fields + config), not LLM-decided:</p>
+<table class="data-table" style="margin-top:10px">
+  <tr><th>Function</th><th>After Node</th><th>Logic</th></tr>
+  <tr><td>route</td><td>assess_coverage (P1)</td><td>sufficient OR iteration≥max → prepare_writer_context; else → plan_and_generate_queries</td></tr>
+  <tr><td>section_route</td><td>section_assess_coverage</td><td>complete OR iter≥max → generate_section_summary; else → generate_section_queries</td></tr>
+  <tr><td>conflict_route</td><td>detect_global_gaps_and_conflicts</td><td>needed AND enabled → conflict_resolution_research; else → prepare_writer_context</td></tr>
+</table>`
+      }
+    ]
+  },
+  {
+    icon: '⚡', color: '#0D9488', title: 'Node Design',
+    cards: [
+      {
+        q: 'Why not combine certain nodes? What is the design principle?',
+        badge: 'NODE DESIGN', badgeColor: '#0D9488',
+        body: `<p><strong>Principle:</strong> One responsibility per node. Each node has a single job; the graph stays inspectable and progress traces stay interpretable.</p>
+        <table class="data-table" style="margin-top:10px">
+          <tr><th>Nodes</th><th>Could Combine?</th><th>Why Separate</th></tr>
+          <tr><td>ingest + classify</td><td>Yes (ingest is small)</td><td>Keeps "read user input" vs "decide complexity" distinct. Can swap or skip classification without touching ingest.</td></tr>
+          <tr><td>classify + plan</td><td>Yes</td><td>Different models, different prompts. Merging blurs "how hard is this?" vs "what's the plan?"</td></tr>
+          <tr><td>merge + detect_conflicts</td><td>Yes</td><td>Merge is pure Python (dedup); conflict detection is an LLM call. Separating keeps deterministic aggregation distinct from model-based detection.</td></tr>
+          <tr><td>section_search + section_normalize</td><td>Yes</td><td>Search is I/O (may fail, retry independently); normalize is LLM. Splitting lets you re-normalize without re-searching.</td></tr>
+          <tr><td>write_sections + write_report</td><td>Theoretically</td><td>Per-section writing (N prompts, bounded context) vs single assembly pass — different patterns, different shapes.</td></tr>
+        </table>`
+      },
+      {
+        q: 'LLM output patterns: function calling vs custom parser vs free-form',
+        badge: 'PATTERN', badgeColor: '#0D9488',
+        body: `<p><strong>Pattern 1 — Function calling</strong> (<code>with_structured_output(..., method="function_calling")</code>): Used when we need a strict, fixed schema and reliable parsing for routing, state, or typed lists.</p>
+<p>Nodes: <code>classify_complexity</code> → ClassifyOutput, <code>section_normalize</code> → SectionEvidenceItem, <code>section_assess_coverage</code> → SectionCoverageOutput, <code>detect_global_gaps_and_conflicts</code> → ConflictOutput, <code>conflict_resolution_research (adjudication)</code> → AdjudicationOutput</p>
+<p><strong>Pattern 2 — Custom parser</strong> (<code>llm.invoke()</code> + strip fences + <code>json.loads</code> + fallback): Used when schema is flexible/nested or we need simplicity with fallback values.</p>
+<p>Nodes: <code>create_research_plan</code>, <code>decompose_into_sections</code>, <code>generate_section_queries</code>, <code>generate_section_summary</code>, conflict query generation, eval judge</p>
+<p><strong>Pattern 3 — Free-form text:</strong> <code>write_report</code>, <code>write_sections</code>. Output is the report or section draft; stored as a string, not parsed.</p>`
+      }
+    ]
+  },
+  {
+    icon: '🧪', color: '#6D28D9', title: 'Testing & Evaluation',
+    cards: [
+      {
+        q: 'What tests exist? What is and isn\'t covered?',
+        badge: 'TESTING', badgeColor: '#6D28D9',
+        body: `<p><strong>Unit tests (tests/test_graph.py):</strong> Graph build (both phases compile), routing functions (route, section_route, conflict_route) with various state, dispatch_sections (one Send per section, max_parallel_sections respected), merge (dedup by URL, supporting_sections), config loading, eval suite (10 eval names, scores in [0,1]), Pydantic models.</p>
+<p><strong>E2E tests:</strong> test_graph_e2e_run (full Phase 2 run with real APIs when keys present), test_report_in_messages, test_sources_present. <strong>Skipped</strong> without OPENAI_API_KEY + search key.</p>
+<p><strong>Not covered:</strong> No mocks for LLM or search. No tests for individual nodes (classify, normalize, writer, etc.). No unit tests that stub tool calls.</p>`
+      },
+      {
+        q: 'What are the 10 eval metrics and what does each measure?',
+        badge: 'EVALS', badgeColor: '#6D28D9',
+        body: `<p>All evals use an <strong>LLM-as-judge</strong> helper (<code>judge_call(rubric, context)</code>): gpt-4o-mini + rubric + context → JSON <code>{score: 0-10, reasoning}</code>, normalized to 0–1.</p>
+        <table class="data-table" style="margin-top:8px">
+          <tr><th>Eval</th><th>Approximates</th><th>What it checks</th></tr>
+          <tr><td>claim_support</td><td>Faithfulness</td><td>Major claims supported by cited evidence; penalize unsupported assertions.</td></tr>
+          <tr><td>factual_accuracy</td><td>Faithfulness</td><td>Report claims match cited snippets; penalize invented or contradicted facts.</td></tr>
+          <tr><td>citation_relevance</td><td>Citation quality</td><td>Each [n] citation actually supports the specific claim it annotates.</td></tr>
+          <tr><td>section_completeness</td><td>Coverage</td><td>Each planned section is addressed in the report.</td></tr>
+          <tr><td>synthesis_quality</td><td>Answer quality</td><td>Analytical depth, narrative flow, cross-source synthesis.</td></tr>
+          <tr><td>comparative_breadth</td><td>Relevancy</td><td>For comparisons, all entities get adequate treatment.</td></tr>
+          <tr><td>source_quality</td><td>Input quality</td><td>Avoid over-reliance on weak or redundant sources.</td></tr>
+          <tr><td>conflict_handling</td><td>Honesty</td><td>Contradictory evidence surfaced honestly.</td></tr>
+          <tr><td>stop_decision</td><td>Loop behavior</td><td>Stopped at right time? Not too early (critical gaps) or too long.</td></tr>
+          <tr><td>tool_trajectory</td><td>Efficiency</td><td>Section coverage, dedup ratio, critical gaps, evidence yield.</td></tr>
+        </table>`
+      },
+      {
+        q: 'How does hallucination detection work?',
+        badge: 'QUALITY', badgeColor: '#6D28D9',
+        body: `<p>Hallucination detection is <strong>post-hoc</strong> (after the report is written), via three evals:</p>
+<ul>
+<li><strong>factual_accuracy:</strong> Compares report claims to cited evidence snippets. Penalizes invented facts, numbers, or dates not in evidence.</li>
+<li><strong>claim_support:</strong> Ensures major claims have an inline citation. Catches "made up and uncited" more than "cited but wrong."</li>
+<li><strong>citation_relevance:</strong> Checks that evidence item [n] actually supports the specific claim it's attached to. Catches <em>attribution hallucinations</em>.</li>
+</ul>
+<p><strong>Gap:</strong> No automated check that citation number matches the right URL. DESIGN.md mentions a future "citation verification loop." We don't run that today.</p>
+<p><strong>During generation:</strong> No inline "don't hallucinate" check. We rely on writer prompts (cite evidence) + post-run evals.</p>`
+      }
+    ]
+  },
+  {
+    icon: '🚀', color: '#BE185D', title: 'Production & Operations',
+    cards: [
+      {
+        q: 'Error handling, retries, and fallbacks — what exists today?',
+        badge: 'PRODUCTION', badgeColor: '#BE185D',
+        body: `<table class="data-table">
+          <tr><th>Layer</th><th>Behavior on Error</th></tr>
+          <tr><td>Search APIs</td><td>Each query wrapped in try/except → returns []. One failing query doesn't stop the loop.</td></tr>
+          <tr><td>JSON parsing (plan, decompose, queries)</td><td>json.loads failure → fallback defaults (default plan, empty section_tasks, empty queries). Never crashes.</td></tr>
+          <tr><td>LLM structured output (function calling)</td><td>❌ Not wrapped. API errors or parse failures propagate and fail the run.</td></tr>
+          <tr><td>Writer-context URL fetch</td><td>try/except per URL. Failure = skip that URL. Never fails the node.</td></tr>
+          <tr><td>Eval judge</td><td>Exception → returns (0.5, "eval unavailable"). One eval failure doesn't break run_evals.</td></tr>
+        </table>
+        <p><strong>Retries:</strong> None. A single 429 or 503 from OpenAI fails the run. Add tenacity with exponential backoff for production.</p>
+        <p><strong>Search provider fallback:</strong> Configuration-time (which provider to use), not runtime (try next provider after failure).</p>`
+      },
+      {
+        q: 'How to scale to 1000 concurrent users — what breaks first?',
+        badge: 'SCALING', badgeColor: '#BE185D',
+        body: `<p><strong>In rough order of what breaks first:</strong></p>
+<ol style="color: var(--text-dim); font-size:13px; padding-left:20px">
+<li style="margin:6px 0"><strong>Provider rate limits (LLM + search):</strong> 1000 runs × many LLM calls → 429s. Need global throttling, per-user quotas, request queue.</li>
+<li style="margin:6px 0"><strong>MemorySaver checkpointer:</strong> In-process, in-memory — doesn't scale across processes. Need PostgresSaver or SqliteSaver for horizontal scaling and state survival across restarts.</li>
+<li style="margin:6px 0"><strong>Sync I/O / GIL:</strong> All nodes are synchronous. Many concurrent runs exhaust threads. Need async nodes + astream/ainvoke, or more workers behind a queue.</li>
+<li style="margin:6px 0"><strong>No request queue:</strong> 1000 simultaneous starts overwhelm everything. Need Celery/Redis Queue with bounded worker pool (e.g. 50–100 concurrent runs).</li>
+<li style="margin:6px 0"><strong>Memory per run:</strong> All state in MemorySaver. 1000 runs × large state can exhaust RAM. Shared checkpointer reduces per-process memory.</li>
+<li style="margin:6px 0"><strong>Cost guardrails:</strong> 1000 unbounded runs can blow budget. Token tracking + per-run cost cap become necessary.</li>
+</ol>`
+      },
+      {
+        q: 'Where does PII / sensitive data flow, and what should be done?',
+        badge: 'SECURITY', badgeColor: '#BE185D',
+        body: `<p><strong>Where user data flows today:</strong></p>
+<ul>
+<li><strong>state["query"]:</strong> Sent to every LLM call (classify, plan, section queries, writer). In every prompt. If query has PII, it's in all API requests.</li>
+<li><strong>Search results:</strong> Snippets, titles, raw_content from scraped pages in state + writer prompts. Third-party web content may contain PII.</li>
+<li><strong>Logs (--log):</strong> Prompts truncated to 4000 chars but NO redaction. Query and evidence in log files.</li>
+<li><strong>MemorySaver checkpoints:</strong> Full state including messages, evidence, report persisted in memory.</li>
+<li><strong>Third-party APIs:</strong> Query + content sent to OpenAI, Tavily, Exa, Gensee. Provider policies apply.</li>
+</ul>
+<p><strong>Today: No PII detection, no redaction, no retention policy, no disclosure.</strong></p>
+<p><strong>To improve:</strong> Redact or avoid logging prompts in production. Allowlist log fields. Retention policy for checkpoints. Disclose third-party data sharing. Optionally run PII pass on the final report.</p>`
+      },
+      {
+        q: 'Success criteria: how is accuracy, latency, cost, and reliability addressed?',
+        badge: 'CRITERIA', badgeColor: '#BE185D',
+        body: `<table class="data-table">
+          <tr><th>Dimension</th><th>How addressed</th></tr>
+          <tr><td>Accuracy</td><td>Evals (--eval): 10 LLM-as-judge metrics. No threshold gates the run; evals are for inspection. Design: evidence normalization, writer-context curation, conflict detection.</td></tr>
+          <tr><td>Latency</td><td>Not measured or bounded. Design: cheap models for classify/normalize/coverage; strong models only for plan/write. Iteration caps limit runtime.</td></tr>
+          <tr><td>Cost</td><td>No per-run cost tracking. Design: model routing + iteration caps + max_parallel_sections cap work. DESIGN.md mentions cost tracking as stretch goal.</td></tr>
+          <tr><td>Reliability</td><td>No formal SLO. Fallbacks on JSON parse failures; iteration budgets prevent infinite loops; source-list repair in run.py. Tests focus on graph shape + smoke coverage.</td></tr>
+        </table>`
+      }
+    ]
+  },
+  {
+    icon: '🔒', color: '#9F1239', title: 'Edge Cases & Security',
+    cards: [
+      {
+        q: 'What if the tool returns garbage or malformed output?',
+        badge: 'ROBUSTNESS', badgeColor: '#9F1239',
+        body: `<p><strong>Search garbage:</strong> Network errors → returns []. Malformed 200 response → skip items without URL. Never crashes node. Add: validate required fields, optional retry on 5xx/timeout.</p>
+<p><strong>LLM malformed JSON:</strong> Strip fences → json.loads → fallback defaults on JSONDecodeError (default plan, empty queries, etc.). Never crashes. Add: one retry before fallback; log/metric on JSONDecodeError.</p>
+<p><strong>LLM function-call refusal (structured output):</strong> ❌ Currently no try/except. Raises and fails the run. <strong>Fix needed:</strong> Wrap structured.invoke() in try/except with safe defaults per node (classify → "moderate"; normalize → []; coverage → insufficient; conflict detection → not_needed).</p>`
+      },
+      {
+        q: 'What if a user asks something out of scope?',
+        badge: 'EDGE CASE', badgeColor: '#9F1239',
+        body: `<p><strong>Today:</strong> No scope check. We run the full pipeline regardless of query (weather, poem, code execution, etc.). We still do web search and write a report — just potentially a weird or low-quality one.</p>
+<p><strong>How to add scope handling:</strong></p>
+<ul>
+<li>Extend classify_complexity or add an intent check node: classify "researchable" vs "out_of_scope".</li>
+<li>Add a conditional edge from ingest/classify to an "out_of_scope_response" node that appends a canned AIMessage and goes to END.</li>
+<li>Or: instruct the planner to output a flag when query isn't research-appropriate; router checks the flag and short-circuits.</li>
+</ul>`
+      },
+      {
+        q: 'How would multi-turn conversations work? What breaks with context loss?',
+        badge: 'MULTI-TURN', badgeColor: '#9F1239',
+        body: `<p><strong>Today:</strong> Single-turn runs only. <code>ingest_request</code> scans reversed(messages) and takes only the <strong>latest HumanMessage</strong>. So multi-turn follow-ups lose the original query and report context.</p>
+<p><strong>Example problem:</strong> User first asks "What is X?" → gets a report. Then sends "Go deeper on section 2." With current ingest, <code>query = "Go deeper on section 2"</code> — the original question is lost.</p>
+<p><strong>How to fix:</strong></p>
+<ol style="color:var(--text-dim); font-size:13px; padding-left:20px">
+<li style="margin:5px 0">Build <strong>summarized conversation context</strong> from full messages list and use that as the effective query for planner/writer.</li>
+<li style="margin:5px 0">Support <strong>resume from checkpoint</strong> for "same evidence, rewrite section" requests.</li>
+<li style="margin:5px 0">API: persist messages + state per thread_id; on new turn, load full history, append HumanMessage, run graph with full messages as initial state; ensure ingest derives query from full history.</li>
+</ol>`
+      },
+      {
+        q: 'Prompt injection and guardrails — current state and defenses',
+        badge: 'SECURITY', badgeColor: '#9F1239',
+        body: `<p><strong>Attack surface today:</strong></p>
+<ul>
+<li><strong>User query:</strong> Passed as user message to classify, plan, section queries, writer. Injection like "Ignore previous instructions…" is passed through.</li>
+<li><strong>Search results:</strong> Snippets and raw_content from scraped pages passed into normalize, coverage, writer prompts. Poisoned pages can carry injected instructions.</li>
+</ul>
+<p><strong>Today: No defenses.</strong> No structural separation, no input filtering, no safety classifiers, no output guardrails.</p>
+<p><strong>How to defend:</strong></p>
+<ul>
+<li>Structurally separate: <code>&lt;user_query&gt;</code>/<code>&lt;evidence&gt;</code> delimiters in prompts, instruct model to treat content as data not instructions.</li>
+<li>Filter/cap: Reject or truncate queries with injection patterns; cap query length (e.g. 2K chars); truncate evidence snippets.</li>
+<li>Output check: Post-generation, verify report answers original query. On failure, return generic message or retry with hardened prompt.</li>
+<li>For production: Add LlamaGuard or OpenAI Moderation on user input + final report.</li>
+</ul>`
+      }
+    ]
+  }
+];
+
+// ═══════════════════════════════════════════════════════════════════════════
+// INTERVIEW Q&A DATA
+// ═══════════════════════════════════════════════════════════════════════════
+
+const INTERVIEW_QA = [
+  {
+    diff: 'CORE', diffClass: 'diff-core',
+    q: '"Walk me through the architecture."',
+    a: `<p>Use the Phase 2 flow. Mention: <strong>ingest → classify → plan → (optional HITL) → decompose → parallel section workers → merge → conflict detection → optional conflict research → prepare writer context → write sections → write report → finalize.</strong></p>
+<p>Emphasize three things: (1) <strong>state</strong> — TypedDict with reducers so parallel workers can safely merge results; (2) <strong>conditional edges</strong> — routing is rule-based, not LLM-decided; (3) <strong>section worker subgraph</strong> — each section gets its own search/normalize/coverage loop, fanned out via LangGraph Send, results merged by operator.add.</p>
+<div class="highlight-box green" style="margin-top:10px"><strong>One-liner:</strong> A graph-based deep research agent that plans a report, runs parallel section workers (each with search→normalize→coverage loop), merges evidence, resolves conflicts, curates context, and writes a grounded markdown report with citations.</div>`
+  },
+  {
+    diff: 'CORE', diffClass: 'diff-core',
+    q: '"Why LangGraph?"',
+    a: `<p>We need <strong>loops</strong> (research until coverage or budget), <strong>branching</strong> (conflict vs no conflict, sufficient vs insufficient coverage), <strong>parallel fan-out</strong> (section workers), <strong>shared typed state with merge semantics</strong>, and <strong>optional interruption</strong> for plan approval. A graph makes all of that explicit and debuggable.</p>
+<p><strong>Why not LCEL/chains?</strong> They're linear A→B→C pipelines. Conditional edges, bounded loops, and parallel subgraphs with typed state aren't natural fits.</p>
+<p><strong>Why not ReAct?</strong> ReAct is model-driven (LLM decides what to do next). We want rule-based routing so the pipeline shape is predictable and inspectable. Parallelism and structured state aren't natural ReAct patterns.</p>`
+  },
+  {
+    diff: 'CORE', diffClass: 'diff-core',
+    q: '"How do you avoid the writer hallucinating or ignoring sources?"',
+    a: `<p><strong>Pre-generation:</strong> Normalize and curate evidence (relevance score ≥ 5, credibility, dedup by URL). Cap what the writer sees (writer_context_max_items). Map each evidence item to section_ids so the writer only sees relevant sources per section.</p>
+<p><strong>Prompt:</strong> Writer prompts explicitly instruct the model to cite inline and only use provided evidence.</p>
+<p><strong>Post-generation:</strong> Three LLM-as-judge evals: <code>factual_accuracy</code> (claims match snippets), <code>claim_support</code> (major claims are cited), <code>citation_relevance</code> (citation [n] actually supports the specific claim).</p>
+<p><strong>Repair:</strong> If the report's Sources section ends up empty, <code>run.py</code> rebuilds it from <code>state["sources"]</code>.</p>`
+  },
+  {
+    diff: 'CORE', diffClass: 'diff-core',
+    q: '"How do you handle conflicting information?"',
+    a: `<p>After merging all section evidence, <code>detect_global_gaps_and_conflicts</code> uses a structured LLM call (ConflictOutput) to identify conflicting claims in the merged evidence. If <code>conflict_resolution_needed</code> is True and <code>conflict_resolution_enabled</code> is True in config:</p>
+<ul>
+<li>Run <code>conflict_resolution_research</code>: generate targeted search queries to resolve conflicts, run search, add results to merged_evidence (flagged as conflict_resolution), then LLM adjudication using credibility/recency/primary-source heuristics to produce resolved_conflicts.</li>
+<li>The writer then sees the reconciled picture.</li>
+</ul>
+<p>Resolution is optional (config flag) to avoid unnecessary API calls for minor or unresolvable conflicts. The <code>conflict_handling</code> eval checks that contradictory evidence is surfaced honestly in the report.</p>`
+  },
+  {
+    diff: 'DEEP', diffClass: 'diff-deep',
+    q: '"How is state managed with parallel section workers?"',
+    a: `<p>Section workers run as a subgraph fanned out via LangGraph <code>Send</code>. Each worker gets its own isolated state slice. When workers complete, LangGraph merges their updates using reducers declared in ResearchState:</p>
+<ul>
+<li><code>section_results</code>: <code>operator.add</code> — each worker appends its result; no overwriting</li>
+<li><code>global_seen_urls</code>, <code>section_seen_urls</code>: <code>_merge_sets</code> — set union across all workers</li>
+<li><code>query</code>, <code>section_max_iterations</code>: <code>_keep_first</code> — parallel workers must not overwrite the canonical query set by ingest</li>
+<li><code>messages</code>: <code>add_messages</code> — append semantics</li>
+</ul>
+<p>Without these reducers, workers would overwrite each other's results. The reducers are declared via <code>Annotated[Type, reducer_fn]</code> in the TypedDict state definition.</p>`
+  },
+  {
+    diff: 'DEEP', diffClass: 'diff-deep',
+    q: '"What was the hardest bug you hit while building this?"',
+    a: `<p><strong>State merging with parallel section workers and the checkpointer.</strong> When the main graph fans out with <code>Send()</code> to multiple section workers, each worker returns a state update that LangGraph merges using reducers. We use <code>operator.add</code> for <code>section_results</code>, <code>_merge_sets</code> for <code>global_seen_urls</code>, and <code>_keep_first</code> for <code>query</code> and <code>section_max_iterations</code>.</p>
+<p>In some runs, <code>writer_evidence_subset</code> (set by <code>prepare_writer_context</code>) could end up empty in the state that the writer node saw — due to reducer semantics, merge order, or how the checkpointer applied updates. The writer node has an <strong>explicit fallback</strong>: if <code>writer_evidence_subset</code> is empty, use <code>merged_evidence</code> to build the evidence list. That fallback exists because we hit the "writer got no evidence" case.</p>
+<p>Other candidates: malformed JSON from planner/decompose (added strip-code-fence + fallback defaults); coverage/route returning something unexpected and breaking the conditional edge.</p>`
+  },
+  {
+    diff: 'PROD', diffClass: 'diff-prod',
+    q: '"If you had 2 more days, what would you improve?"',
+    a: `<p>Pick 2–3 matching the role:</p>
+<ol style="color:var(--text-dim);font-size:13px;padding-left:20px;line-height:1.7">
+<li style="margin:6px 0"><strong>Robustness & safety:</strong> Wrap all <code>with_structured_output</code> nodes in try/except with safe defaults. Add a minimal content-safety check on the final report before returning (so we don't serve clearly off-policy output).</li>
+<li style="margin:6px 0"><strong>Observability & cost:</strong> Token tracking per run + per-run cost guardrail (abort or trim if exceeded). Ensure every run emits a LangSmith trace with cost and step count for alerting.</li>
+<li style="margin:6px 0"><strong>Quality:</strong> One retry-before-fallback for JSON and structured output nodes. Optionally: async search loops and writer-context prep to cut latency.</li>
+<li style="margin:6px 0"><strong>Security/compliance:</strong> Prompt delimiters for user/evidence in prompts. PII redaction (or allowlist) for logs.</li>
+</ol>`
+  },
+  {
+    diff: 'PROD', diffClass: 'diff-prod',
+    q: '"What would you improve next?" (longer horizon)',
+    a: `<p>From DESIGN.md honest shortcomings:</p>
+<ul>
+<li><strong>Config cleanup:</strong> config.yaml and configuration.py not fully aligned for some planner model names.</li>
+<li><strong>Section summaries:</strong> Don't get full evidence body yet — summaries are built from top-N snippets only.</li>
+<li><strong>Conflict resolution:</strong> Still shallow — adjudication uses credibility/recency heuristics, could be much richer.</li>
+<li><strong>Dedup:</strong> URL-based only. No semantic dedup (same article, different URLs not caught).</li>
+<li><strong>Tests:</strong> More graph/smoke than deep node correctness. No mocks for LLM or search.</li>
+<li><strong>Multi-turn:</strong> Single-turn only. Need conversation context carried into planner.</li>
+<li><strong>Streaming:</strong> Report output not streamed — user waits for full report.</li>
+</ul>`
+  },
+  {
+    diff: 'BONUS', diffClass: 'diff-bonus',
+    q: '"How do you stay up-to-date with LangChain/LangGraph releases?"',
+    a: `<ol style="color:var(--text-dim);font-size:13px;padding-left:20px;line-height:1.7">
+<li style="margin:5px 0"><strong>GitHub:</strong> Watch langchain-ai/langgraph and langchain-ai/langchain Releases and Discussions. Skim release notes for breaking changes and new features (checkpointing, streaming, Studio).</li>
+<li style="margin:5px 0"><strong>Docs and changelog:</strong> Check official LangChain/LangGraph docs and "What's new" pages when starting a new feature or upgrading.</li>
+<li style="margin:5px 0"><strong>Community:</strong> LangChain Discord and their blog for announcements, migration guides, best practices.</li>
+<li style="margin:5px 0"><strong>Dependency hygiene:</strong> Periodically run <code>pip list --outdated</code> or Dependabot; read release notes before bumping langgraph/langchain-* to catch deprecations early.</li>
+</ol>`
+  },
+  {
+    diff: 'BONUS', diffClass: 'diff-bonus',
+    q: '"Any questions for us?" (Questions to ask the interviewer)',
+    a: `<ol style="color:var(--text-dim);font-size:13px;padding-left:20px;line-height:1.8">
+<li style="margin:6px 0"><strong>Agent platform & LangGraph:</strong> "How are production agents built today — fully on LangGraph, or a mix of LangGraph and other stacks? What's the main thing you'd want to improve in your agent platform over the next year?"</li>
+<li style="margin:6px 0"><strong>LangSmith usage:</strong> "How do you use LangSmith internally — mainly for eval and debugging, or also for production monitoring, cost tracking, and alerting? How do you decide what gets traced in prod vs. only in staging?"</li>
+<li style="margin:6px 0"><strong>Eval and quality:</strong> "How do you run evals on agent flows — LangSmith datasets + custom evaluators, or something else? How do you gate or monitor quality when you ship a new prompt or graph change?"</li>
+<li style="margin:6px 0"><strong>Scale and reliability:</strong> "For high-traffic agent use cases, how do you handle rate limits, retries, and fallbacks to the LLM and external tools? Any patterns you've settled on for cost guardrails or per-user caps?"</li>
+</ol>`
+  }
+];
+
+// ═══════════════════════════════════════════════════════════════════════════
+// QUICK REFERENCE DATA
+// ═══════════════════════════════════════════════════════════════════════════
+
+const QUICKREF_DATA = {
+  commands: `# Run with auto mode (skip plan approval)
+python run.py "Your research question" --auto
+
+# Run with plan approval (interactive)
+python run.py "Your research question"
+
+# Run with trace and eval
+python run.py "Question" --trace --eval
+
+# Custom config / output dir
+python run.py "Question" --config my_config.yaml -o ./reports
+
+# Use specific search provider
+python run.py "Question" --search-provider tavily --auto
+
+# Override iterations
+python run.py "Question" --max-iterations 5 --auto
+
+# Dev server for LangSmith Studio
+langgraph dev
+
+# Run tests
+pytest tests/ -v
+
+# Run only unit tests (no API needed)
+pytest tests/ -v -k "not e2e"`,
+  keyFiles: [
+    ['run.py', 'Entry point / CLI. Load config, build graph, stream progress, plan approval, write report.'],
+    ['deep_research/graph.py', 'create_research_graph() (Phase 2), create_research_graph_phase1() (legacy).'],
+    ['deep_research/section_graph.py', 'create_section_worker_graph() — the inner per-section research loop.'],
+    ['deep_research/state.py', 'ResearchState, SectionWorkerState. Reducers for parallel workers.'],
+    ['deep_research/routing.py', 'route (P1), section_route (section worker), conflict_route (P2).'],
+    ['deep_research/nodes/ingest.py', 'ingest_request — read query, initialize state.'],
+    ['deep_research/nodes/classify.py', 'classify_complexity — LLM classifies simple/moderate/complex.'],
+    ['deep_research/nodes/planner.py', 'create_research_plan — LLM builds research plan.'],
+    ['deep_research/nodes/decompose.py', 'decompose_into_sections + dispatch_sections fan-out.'],
+    ['deep_research/nodes/section_queries.py', 'generate_section_queries — per-section LLM query generation.'],
+    ['deep_research/nodes/section_search.py', 'section_search — calls search API per query.'],
+    ['deep_research/nodes/section_normalize.py', 'section_normalize — LLM extracts structured evidence.'],
+    ['deep_research/nodes/section_coverage.py', 'section_assess_coverage — LLM scores coverage 0-10.'],
+    ['deep_research/nodes/section_summary.py', 'generate_section_summary — LLM summarizes section findings.'],
+    ['deep_research/nodes/merge.py', 'merge_section_evidence — dedup by URL, build merged evidence.'],
+    ['deep_research/nodes/conflicts.py', 'detect_global_gaps_and_conflicts + conflict_resolution_research.'],
+    ['deep_research/nodes/writer_context.py', 'prepare_writer_context — rank, cap, optionally enrich evidence.'],
+    ['deep_research/nodes/section_writer.py', 'write_sections — one LLM call per section.'],
+    ['deep_research/nodes/writer.py', 'write_report — assembles final report.'],
+    ['deep_research/nodes/finalize.py', 'finalize_messages — wraps report in AIMessage.'],
+    ['deep_research/configuration.py', 'get_config(), all config keys and defaults.'],
+    ['deep_research/prompts.py', 'All system prompts and prompt helpers.'],
+    ['deep_research/evals/', 'Custom LLM-as-judge evals (10 metrics).'],
+    ['config.yaml', 'Default runtime config (models, iterations, search provider, etc.).'],
+    ['report_presets.yaml', 'Report format presets (Standard, Academic, Consulting, etc.).'],
+    ['langgraph.json', 'LangGraph deployment config — declares make_graph entry point.'],
+    ['tests/test_graph.py', 'Unit + E2E tests.'],
+  ],
+  designDecisions: [
+    ['Graph instead of chain', 'Loops, branching, shared state, inspectable control flow.'],
+    ['Iterative research', 'One-shot search is brittle; coverage-driven loop improves robustness.'],
+    ['Section workers', 'Report is sectional; per-section research is targeted and parallelizable.'],
+    ['Dedicated normalization', 'Clean, scored evidence beats raw search in writer prompts.'],
+    ['Writer-context prep', 'Caps context size, balances sections, ranks evidence.'],
+    ['Explicit coverage + router', 'Replaces "feel done" with a defined stopping rule and iteration cap.'],
+    ['Conflict detection + optional resolution', 'Parallel sections can contradict; global pass + adjudication reduces inconsistency.'],
+    ['Plan approval (HITL)', 'User can fix scope once before cost is incurred.'],
+    ['Model routing (classify → planner)', 'Use cheaper models for simple steps, stronger for planning and writing.'],
+    ['TypedDict state with reducers', 'Parallel section workers need defined merge semantics.'],
+    ['Phase 1 preserved', 'Simpler path for reasoning and narrow queries; Phase 2 for broad topics.'],
+  ]
+};
+
+// ═══════════════════════════════════════════════════════════════════════════
+// RENDER ARCHITECTURE CARDS
+// ═══════════════════════════════════════════════════════════════════════════
+
+function renderArchitecture() {
+  const container = document.getElementById('arch-cards');
+  container.innerHTML = '';
+
+  ARCH_CATEGORIES.forEach(cat => {
+    const catHeader = document.createElement('div');
+    catHeader.className = 'cat-header';
+    catHeader.innerHTML = `
+      <div class="cat-icon" style="background:${cat.color}22">${cat.icon}</div>
+      <span class="cat-title">${cat.title}</span>
+      <div class="cat-line"></div>`;
+    container.appendChild(catHeader);
+
+    const grid = document.createElement('div');
+    grid.className = 'card-grid';
+
+    cat.cards.forEach(card => {
+      const acc = document.createElement('div');
+      acc.className = 'accordion';
+      acc.innerHTML = `
+        <div class="acc-header">
+          <span class="acc-question">${card.q}</span>
+          <span class="acc-badge" style="background:${card.badgeColor}18;border-color:${card.badgeColor}44;color:${card.badgeColor}">${card.badge}</span>
+          <svg class="acc-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none">
+            <path d="M6 9L12 15L18 9" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <div class="acc-body">${card.body}</div>`;
+      const hdr = acc.querySelector('.acc-header');
+      hdr.setAttribute('tabindex', '0');
+      hdr.setAttribute('role', 'button');
+      hdr.addEventListener('click', () => acc.classList.toggle('open'));
+      hdr.addEventListener('keydown', e => { if(e.key==='Enter'||e.key===' '){e.preventDefault();acc.classList.toggle('open');}});
+      grid.appendChild(acc);
+    });
+
+    container.appendChild(grid);
+  });
+}
+
+// ─── Search filter ────────────────────────────────────────────────────────
+document.getElementById('arch-search').addEventListener('input', function() {
+  const q = this.value.toLowerCase().trim();
+  document.querySelectorAll('#arch-cards .accordion').forEach(acc => {
+    const text = acc.textContent.toLowerCase();
+    acc.style.display = q && !text.includes(q) ? 'none' : '';
+  });
+  document.querySelectorAll('#arch-cards .cat-header').forEach(ch => {
+    const grid = ch.nextElementSibling;
+    if (!grid) return;
+    const visible = [...grid.querySelectorAll('.accordion')].some(a => a.style.display !== 'none');
+    ch.style.display = visible ? '' : 'none';
+    grid.style.display = visible ? '' : 'none';
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// RENDER INTERVIEW CARDS
+// ═══════════════════════════════════════════════════════════════════════════
+
+function renderInterview() {
+  const container = document.getElementById('interview-cards');
+  container.innerHTML = '';
+
+  // Group by difficulty
+  const groups = {CORE:'Core Questions',DEEP:'Deep Dive',PROD:'Production & Growth',BONUS:'Bonus Topics'};
+  const grouped = {CORE:[],DEEP:[],PROD:[],BONUS:[]};
+  INTERVIEW_QA.forEach(item => grouped[item.diff].push(item));
+
+  Object.entries(groups).forEach(([key, label]) => {
+    if (!grouped[key].length) return;
+
+    const catHeader = document.createElement('div');
+    catHeader.className = 'cat-header';
+    catHeader.innerHTML = `<span class="cat-title">${label}</span><div class="cat-line"></div>`;
+    container.appendChild(catHeader);
+
+    const grid = document.createElement('div');
+    grid.className = 'card-grid';
+
+    grouped[key].forEach(item => {
+      const acc = document.createElement('div');
+      acc.className = 'accordion';
+      acc.innerHTML = `
+        <div class="acc-header">
+          <span class="acc-question">${item.q}</span>
+          <span class="int-difficulty ${item.diffClass}">${item.diff}</span>
+          <svg class="acc-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none">
+            <path d="M6 9L12 15L18 9" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <div class="acc-body">${item.a}</div>`;
+      const hdr = acc.querySelector('.acc-header');
+      hdr.setAttribute('tabindex', '0');
+      hdr.setAttribute('role', 'button');
+      hdr.addEventListener('click', () => acc.classList.toggle('open'));
+      hdr.addEventListener('keydown', e => { if(e.key==='Enter'||e.key===' '){e.preventDefault();acc.classList.toggle('open');}});
+      grid.appendChild(acc);
+    });
+
+    container.appendChild(grid);
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// RENDER QUICK REFERENCE
+// ═══════════════════════════════════════════════════════════════════════════
+
+function renderQuickRef() {
+  const container = document.getElementById('quickref-content');
+  container.innerHTML = '';
+
+  // Commands + Key Files side by side
+  const grid = document.createElement('div');
+  grid.className = 'qr-grid';
+
+  // Commands card
+  const cmdCard = document.createElement('div');
+  cmdCard.className = 'qr-card';
+  cmdCard.innerHTML = `<h3>CLI Commands</h3><pre>${QUICKREF_DATA.commands}</pre>`;
+  grid.appendChild(cmdCard);
+
+  // Key Files card
+  const filesCard = document.createElement('div');
+  filesCard.className = 'qr-card';
+  filesCard.innerHTML = `<h3>Key Files</h3><div class="qr-file">${
+    QUICKREF_DATA.keyFiles.map(([f,d]) =>
+      `<div class="qr-file-row"><span class="qr-file-name">${f}</span><span class="qr-file-desc">${d}</span></div>`
+    ).join('')
+  }</div>`;
+  grid.appendChild(filesCard);
+
+  container.appendChild(grid);
+
+  // Design decisions table
+  const ddHeader = document.createElement('div');
+  ddHeader.className = 'cat-header';
+  ddHeader.style.marginTop = '28px';
+  ddHeader.innerHTML = `<span class="cat-title">Design Decisions You Can Defend</span><div class="cat-line"></div>`;
+  container.appendChild(ddHeader);
+
+  const ddCard = document.createElement('div');
+  ddCard.className = 'qr-card';
+  ddCard.style.maxWidth = '900px';
+  ddCard.innerHTML = `<table class="data-table">
+    <tr><th>Decision</th><th>Reason</th></tr>
+    ${QUICKREF_DATA.designDecisions.map(([d,r]) => `<tr><td>${d}</td><td style="color:var(--text-dim)">${r}</td></tr>`).join('')}
+  </table>`;
+  container.appendChild(ddCard);
+
+  // Honest shortcomings
+  const scHeader = document.createElement('div');
+  scHeader.className = 'cat-header';
+  scHeader.style.marginTop = '28px';
+  scHeader.innerHTML = `<span class="cat-title">Honest Shortcomings (From DESIGN.md)</span><div class="cat-line"></div>`;
+  container.appendChild(scHeader);
+
+  const scCard = document.createElement('div');
+  scCard.className = 'qr-card';
+  scCard.style.maxWidth = '700px';
+  scCard.innerHTML = `<ul style="color:var(--text-dim);font-size:13px;line-height:1.8;padding-left:20px">
+    <li>Config and configuration.py not fully aligned for some planner model names.</li>
+    <li>Section summaries don't get full evidence body yet (top-N snippets only).</li>
+    <li>Conflict resolution is still shallow (heuristic adjudication).</li>
+    <li>Dedup is URL-based only — no semantic dedup for same article, different URL.</li>
+    <li>Tests are more graph/smoke than deep node correctness. No mocks for LLM or search.</li>
+    <li>Multi-turn conversations not supported — single-turn only.</li>
+    <li>No token tracking or cost guardrails.</li>
+    <li>All nodes are synchronous — no async for parallel I/O.</li>
+  </ul>`;
+  container.appendChild(scCard);
+
+  // Demo tips
+  const demoHeader = document.createElement('div');
+  demoHeader.className = 'cat-header';
+  demoHeader.style.marginTop = '28px';
+  demoHeader.innerHTML = `<span class="cat-title">Demo / Presentation Tips</span><div class="cat-line"></div>`;
+  container.appendChild(demoHeader);
+
+  const demoCard = document.createElement('div');
+  demoCard.className = 'qr-card';
+  demoCard.style.maxWidth = '700px';
+  demoCard.innerHTML = `<ol style="color:var(--text-dim);font-size:13px;line-height:1.8;padding-left:20px">
+    <li>Run a short query (e.g. "What are the main differences between LangGraph and CrewAI?") to show progress and a report.</li>
+    <li>Show the flow in LangSmith Studio if possible: <code>langgraph dev</code> → connect Studio → run the research graph and show nodes/steps.</li>
+    <li>Mention Phase 1 vs Phase 2: "Default is section-based (Phase 2); Phase 1 is the simpler single-agent loop for comparison and debugging."</li>
+    <li>Point to DESIGN.md: "We documented evolution, tradeoffs, and known gaps — honest, not just aspirational."</li>
+    <li>CLI flags: <code>--auto</code> (skip plan approval), <code>--trace</code> (save trace JSON), <code>--eval</code> (run evals), <code>--search-provider</code>, <code>--max-iterations</code>.</li>
+  </ol>`;
+  container.appendChild(demoCard);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// INIT ALL SECTIONS
+// ═══════════════════════════════════════════════════════════════════════════
+renderArchitecture();
+renderInterview();
+renderQuickRef();
+
+</script>
+</body>
+</html>

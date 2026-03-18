@@ -2,7 +2,7 @@
 
 import json
 
-from deep_research.evals.judge import judge_call
+from deep_research.evals.judge import judge_call, async_judge_call
 
 RUBRIC = """Score 0-10: Did the agent stop at the right time?
 - Consider: were all critical knowledge gaps addressed before stopping?
@@ -23,3 +23,18 @@ def eval_stop_decision(
     gaps_str = json.dumps(knowledge_gaps[:20], default=str, indent=0)[:1000]
     context = f"RESEARCH TRACE:\n{trace_str}\n\nKNOWLEDGE GAPS (remaining):\n{gaps_str}"
     return judge_call(RUBRIC, context)
+
+
+async def async_eval_stop_decision(
+    research_trace: dict, knowledge_gaps: list[dict]
+) -> tuple[float, str]:
+    """Async: check whether the agent stopped appropriately (LLM-as-judge)."""
+    trace = research_trace or {}
+    sections = trace.get("sections_created", 0)
+    if not sections:
+        return 0.5, "No section trace data"
+
+    trace_str = json.dumps(trace, default=str, indent=0)[:1500]
+    gaps_str = json.dumps(knowledge_gaps[:20], default=str, indent=0)[:1000]
+    context = f"RESEARCH TRACE:\n{trace_str}\n\nKNOWLEDGE GAPS (remaining):\n{gaps_str}"
+    return await async_judge_call(RUBRIC, context)

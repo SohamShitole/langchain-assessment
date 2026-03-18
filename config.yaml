@@ -43,6 +43,10 @@ section:
   max_iterations: 5 # max iterations per section worker
   queries_per_iteration: 5 # search queries per section iteration
   max_parallel: 10 # max sections to research in parallel
+  # Section summary quality: more evidence = better summaries (higher token cost)
+  summary_top_n: 25 # max evidence items passed to section summary (was 10)
+  summary_snippet_chars: 1200 # max chars per snippet in summary (was 500)
+  # summary_evidence_max_chars: 20000 # optional: fill with full snippets until this budget (0 = use top_n + snippet_chars)
 
 # ── Conflict Resolution (Phase 2) ──
 conflict:
@@ -84,5 +88,5 @@ report:
 # Set any key to a full replacement string to override the default prompt. Leave null to use built-in.
 # Keys: writer, enhanced_writer, report_assembly, research_plan, classify, planner_initial, planner_followup,
 #       normalize, coverage, decompose, section_query, section_query_followup, section_normalize,
-#       section_coverage, section_summary, section_draft, conflict_detect, conflict_resolve
+#       section_coverage, section_summary, section_draft, conflict_detect, conflict_resolve, conflict_adjudicate
 prompts: {}

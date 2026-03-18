@@ -1,19 +1,21 @@
 """Phase 2 evaluation modules.
 
 Each eval returns (score: float 0-1, reasoning: str).
-Run all via run_evals().
+Run all via run_evals() or async_run_evals().
 """
 
-from deep_research.evals.claim_support import eval_claim_support
-from deep_research.evals.section_completeness import eval_section_completeness
-from deep_research.evals.source_quality import eval_source_quality
-from deep_research.evals.conflict_handling import eval_conflict_handling
-from deep_research.evals.stop_decision import eval_stop_decision
-from deep_research.evals.comparative_breadth import eval_comparative_breadth
-from deep_research.evals.factual_accuracy import eval_factual_accuracy
-from deep_research.evals.citation_relevance import eval_citation_relevance
-from deep_research.evals.synthesis_quality import eval_synthesis_quality
-from deep_research.evals.tool_trajectory import eval_tool_trajectory
+import asyncio
+
+from deep_research.evals.claim_support import eval_claim_support, async_eval_claim_support
+from deep_research.evals.section_completeness import eval_section_completeness, async_eval_section_completeness
+from deep_research.evals.source_quality import eval_source_quality, async_eval_source_quality
+from deep_research.evals.conflict_handling import eval_conflict_handling, async_eval_conflict_handling
+from deep_research.evals.stop_decision import eval_stop_decision, async_eval_stop_decision
+from deep_research.evals.comparative_breadth import eval_comparative_breadth, async_eval_comparative_breadth
+from deep_research.evals.factual_accuracy import eval_factual_accuracy, async_eval_factual_accuracy
+from deep_research.evals.citation_relevance import eval_citation_relevance, async_eval_citation_relevance
+from deep_research.evals.synthesis_quality import eval_synthesis_quality, async_eval_synthesis_quality
+from deep_research.evals.tool_trajectory import eval_tool_trajectory, async_eval_tool_trajectory
 
 
 def run_evals(
@@ -33,8 +35,7 @@ def run_evals(
     score, reason = eval_claim_support(report_markdown, writer_evidence)
     results["claim_support"] = (score, reason)
 
-    score, reason = eval_section_completeness(report_markdown, report_outline)
-    results["section_completeness"] = (score, reason)
+    results["section_completeness"] = eval_section_completeness(report_markdown, report_outline)  # (score, reason, section_scores)
 
     score, reason = eval_source_quality(writer_evidence)
     results["source_quality"] = (score, reason)
@@ -61,3 +62,43 @@ def run_evals(
     results["tool_trajectory"] = (score, reason)
 
     return results
+
+
+async def async_run_evals(
+    report_markdown: str,
+    report_outline: list[dict],
+    writer_evidence: list[dict],
+    knowledge_gaps: list[dict],
+    section_results: list[dict] | None = None,
+    research_trace: dict | None = None,
+    query: str = "",
+) -> dict:
+    """Run all applicable evals concurrently and return summary."""
+    research_trace = research_trace or {}
+    section_results = section_results or []
+
+    scores = await asyncio.gather(
+        async_eval_claim_support(report_markdown, writer_evidence),
+        async_eval_section_completeness(report_markdown, report_outline),
+        async_eval_source_quality(writer_evidence),
+        async_eval_conflict_handling(report_markdown, research_trace=research_trace),
+        async_eval_stop_decision(research_trace, knowledge_gaps),
+        async_eval_comparative_breadth(report_markdown, query),
+        async_eval_factual_accuracy(report_markdown, writer_evidence),
+        async_eval_citation_relevance(report_markdown, writer_evidence),
+        async_eval_synthesis_quality(report_markdown, query, report_outline),
+        async_eval_tool_trajectory(research_trace, section_results),
+    )
+    names = [
+        "claim_support",
+        "section_completeness",
+        "source_quality",
+        "conflict_handling",
+        "stop_decision",
+        "comparative_breadth",
+        "factual_accuracy",
+        "citation_relevance",
+        "synthesis_quality",
+        "tool_trajectory",
+    ]
+    return dict(zip(names, scores))

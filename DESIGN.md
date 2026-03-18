@@ -381,6 +381,59 @@ The limitation is that they are still mostly LLM-as-judge checks. That makes the
 
 ---
 
+## Evaluation Restructure: How We Got Here
+
+This section documents a later pass on the evaluation layer: what we changed, the iterative reasoning, why we chose this approach, and what we explicitly decided not to do.
+
+### Where we started
+
+Evals originally ran only in `run.py` when you passed `--eval`, after the graph had already finished. They produced a single JSON file (scores + reasoning per eval) and some console output. Nothing in the graph read those scores. So evals were **monitoring only** — useful for "did this run go well?" but not for "should we loop again or do more research?"
+
+Two questions came up:
+
+1. **Should any eval drive a decision inside the graph?**  
+   If we only ever run evals after the fact, we can notice that research was thin or that we stopped too early, but we cannot correct for it in the same run. So we considered promoting one eval into a **decision gate**: run it inside the graph and use the result to route (e.g. "research sufficient → write" vs "research insufficient → do one more targeted pass").
+
+2. **Where should section completeness live?**  
+   We have a natural moment after section drafts are written but before the final report is assembled. One option was to run section completeness there as a graph node, so we could (in theory) rewrite weak sections. The other was to keep it with the other evals in `run.py`, so we only ever score the **final** report against the outline.
+
+### Iterative decisions
+
+**Decision 1: One decision gate, not ten.**  
+We could have made every eval a graph node and routed on all of them. That would be expensive (many extra LLM calls per run) and would complicate the graph (many conditional edges and retry loops). So we picked **one** eval to act as a gate: **stop decision** ("did we stop at the right time?"). It runs after conflict detection and before writer context. If the score is below a threshold and we have retry budget left, we route back to `conflict_resolution_research` for a targeted gap-filling pass (max one retry). Otherwise we proceed to the writer. All other evals stay in `run.py` as monitoring only.
+
+**Decision 2: No graph node for section completeness.**  
+We briefly had a node `evaluate_section_drafts` between `write_sections` and `write_report` that ran section completeness on the drafts and logged the score. The question was: do we need it in the graph at all? Since section completeness was only for monitoring (no routing), the answer was no. Keeping it as one of the 10 evals in `run.py` is simpler: same pattern as the others, one place for all post-run metrics, and we still evaluate "does the **final** report cover all sections?" which is what we care about for logging. So we removed the node and kept section completeness only in the CLI eval batch.
+
+**Decision 3: Per-section scores without a graph node.**  
+We still wanted to know **which** sections were weak, not just an overall section-completeness score. Options were: (a) a graph node that runs after section drafts and stores per-section scores in state, (b) run section completeness once in `run.py` but ask the judge for **structured output** (overall score + a list of section_id, score, reason per section). We chose (b). The section_completeness eval now returns a 3-tuple: (overall_score, reasoning, section_scores). The evals JSON and the CLI both include this breakdown. So we get per-section visibility where we already run evals, without adding graph nodes or state.
+
+**Decision 4: Async evals in the CLI.**  
+The 10 monitoring evals in `run.py` are independent LLM-as-judge calls. Running them sequentially was slow. We added async versions of each eval and an `async_run_evals` that uses `asyncio.gather` so all 10 run concurrently. The CLI calls `asyncio.run(async_run_evals(...))` when `--eval` is set. Same outputs, less wall-clock time.
+
+### What we actually implemented
+
+- **Inside the graph:** A single node `eval_stop_gate` (in `deep_research/nodes/conflicts.py`) that runs `eval_stop_decision(research_trace, knowledge_gaps)`, writes `stop_eval_score`, `research_sufficient`, and `research_retry_count` to state, and is used by `stop_eval_route` to decide between "conflict_resolution_research" and "prepare_writer_context". No other evals run inside the graph.
+- **In run.py:** All 10 evals run via `async_run_evals` when `--eval` is passed. Results are printed and written to `*_evals.json`. Section completeness now returns and stores an overall score plus `section_scores` (list of per-section score and reason), so we track each section's completeness in the same file.
+- **No extra graph nodes for monitoring.** Section completeness is not a node; it is just one of the 10 evals with a richer return shape.
+
+### Tradeoffs we considered
+
+| Tradeoff | Choice | Why |
+|----------|--------|-----|
+| Decision gate: one vs many | One (stop decision only) | Cost and complexity. One gate gives most of the benefit (avoid writing when research was clearly insufficient) without turning the graph into a maze of eval-driven branches. |
+| Section completeness: graph node vs CLI only | CLI only | It was monitoring only; nothing in the graph consumed the score. Keeping it with the other evals avoids an extra node and keeps all post-run metrics in one place. |
+| Per-section scores: node + state vs structured eval output | Structured eval output | We wanted per-section visibility without polluting state or adding a node. Extending the section_completeness judge to return a list of (section_id, score, reason) gave us that in the existing evals JSON and CLI. |
+| Eval run location: always in graph vs opt-in in CLI | Gate in graph, monitoring in CLI | The gate must be in the graph to affect routing. Monitoring evals are optional (--eval) and expensive; running them only when requested keeps default runs fast and keeps the graph simpler. |
+
+### Summary of the eval restructure
+
+- **One decision gate in the graph:** `eval_stop_gate` uses stop-decision quality to decide whether to do one more research pass or proceed to writing.
+- **All other evals stay in the CLI:** Run asynchronously when `--eval` is set; same JSON and console output as before.
+- **Section completeness:** Still one of those 10 evals, but now returns (and we store) an overall score plus per-section scores and reasons, so we can see which sections were weak without adding graph nodes or state.
+
+---
+
 ## What Works Well Right Now
 
 - The graph structure is a good fit for iterative research and routing.
@@ -393,14 +446,66 @@ The limitation is that they are still mostly LLM-as-judge checks. That makes the
 
 ---
 
+## Improvement: Section summary evidence (addressing shallowness)
+
+This section records the thought process and tradeoffs behind the change that addressed “section summaries don’t get full evidence body yet.”
+
+### The problem
+
+The section summary node produces the “backbone” each section writer uses. It was only given a **truncated slice** of that section’s evidence:
+
+- **Top 10 items only** — evidence sorted by relevance, then only the first 10 were sent to the summary LLM.
+- **500 characters per snippet** — each snippet was cut at 500 chars.
+
+So the summary was grounded in at most ~5k characters of evidence per section, even when the section had many more items and longer snippets. The **full** evidence still flowed to the writer later, but the **summary** that shapes what gets written was based on this small slice, which capped quality and could miss important nuance.
+
+### How we iteratively got here
+
+1. **First reaction: “just bump the numbers.”**  
+   We could have hardcoded e.g. top 20 and 1200 chars. That would help, but any future tune would require a code change and a release. We wanted the behavior to be **tunable without touching code**.
+
+2. **Second idea: make it configurable.**  
+   Add `section.summary_top_n` and `section.summary_snippet_chars` in config, with better defaults (e.g. 25 and 1200). Operators could then trade cost vs quality per deployment. That still leaves a fixed “top-N + cap per snippet” rule: we never pass **all** evidence, only more of it.
+
+3. **Third idea: support “full evidence” when needed.**  
+   For sections where we really want the summary to see everything (up to context limits), we added an optional **character budget**: `section.summary_evidence_max_chars`. When set to a value &gt; 0, the node fills the summary context with full snippets in relevance order until the budget is reached, truncating only the last snippet if needed. When 0 (default), we keep the “top-N + per-snippet cap” behaviour. So we get: **configurable defaults** for most runs, and an **opt-in “full evidence” mode** for power users or critical sections.
+
+### What we implemented
+
+- **Configuration:** `section.summary_top_n` (default 25), `section.summary_snippet_chars` (default 1200), and optional `section.summary_evidence_max_chars` (default 0). All read from `config.yaml` via `configuration.py`.
+- **Section summary node:** Builds the evidence string for the summary prompt in one of two ways: (1) **Budget mode** (`summary_evidence_max_chars` &gt; 0): fill with full snippets until the budget, then truncate only the last one if necessary. (2) **Top-N mode** (otherwise): take the top `summary_top_n` items and cap each snippet at `summary_snippet_chars`. The rest of the node (prompt, JSON parsing, section_result shape) is unchanged.
+- **No change to writer or merge.** The writer still receives section_summaries and evidence as before; we only improved what goes **into** the summary.
+
+### Why this approach
+
+- **Configurable first:** Different runs (e.g. cost-sensitive vs quality-sensitive) can tune limits without code changes. Defaults improve quality over the old 10×500 without requiring new config.
+- **Optional full-evidence path:** When someone needs the strongest possible summary for a section, they can set a character budget and get “as much evidence as fits” instead of a fixed top-N. We don’t force that on everyone because it increases token use and can hit context limits on very large sections.
+- **Single place to change:** All logic lives in the section summary node and config; no new nodes or graph edges. The writer and the rest of the pipeline stay unaware of the two modes.
+
+### Tradeoffs we considered
+
+| Tradeoff | Choice | Why |
+|----------|--------|-----|
+| Hardcoded vs configurable | Configurable | Lets us tune and A/B test without code changes; different environments can use different limits. |
+| One mode vs two (top-N vs budget) | Two modes | Top-N + snippet cap is simple and predictable; budget mode answers “I want full evidence” without hardcoding a huge top-N. |
+| Defaults: conservative vs aggressive | Moderately aggressive (25, 1200) | Old 10×500 was too weak; 25×1200 improves quality for typical runs. We could lower defaults later if cost becomes an issue. |
+| Budget mode: truncate last snippet vs drop last item | Truncate last snippet | Fits as many **items** as possible within the budget, then truncate only the final snippet so we don’t lose a whole source. |
+| Where to document | DESIGN.md + config comments | So the next person understands why the knobs exist and what “section shallowness” referred to. |
+
+### Summary
+
+Section summaries used to be shallow because they only saw a small, truncated slice of each section’s evidence. We fixed that by (1) making the slice size and per-snippet length configurable with better defaults, and (2) adding an optional character-budget mode so that when needed, the summary can see “full” evidence up to a cap. The change is entirely in configuration and the section summary node; the iterative thought process was: hardcode bump → make it configurable → add an optional full-evidence path.
+
+---
+
 ## Where The Code Still Falls Short Of The Design
 
 The broad architecture is solid, but a few details are still rough.
 
 - `config.yaml` and `configuration.py` are not fully aligned for planner model names, so some planner config overrides likely do not work as intended.
 - `dispatch_sections()` currently hardcodes `6` parallel sections instead of using the configurable parallelism setting.
-- Section summaries are weaker than they should be. The current summary node mainly gets section title, goal, and evidence count, not the full evidence body, so summary quality is likely capped.
-- Conflict resolution exists, but it is still fairly shallow. It adds more research, but it does not yet feel like a fully mature adjudication layer.
+- Section summaries have been improved: the summary node now gets configurable evidence (default 25 items × 1200 chars per snippet) and an optional full-evidence character budget via `section.summary_evidence_max_chars`. Summary quality is less capped than before; further gains would require e.g. multi-pass summarization or chunked evidence.
+- Conflict resolution has been deepened: adjudication now receives original evidence plus metadata (credibility, source_type) and disambiguation search results; the writer receives explicit conflict_resolutions (winning_claim, resolution_verdict) so the report can prefer winning claims and surface caveats. It can be taken further (e.g. iterative resolution, downgrading losing evidence).
 - Deduplication is mostly URL-string-based. That helps, but it is not the same as canonicalization or semantic duplicate detection.
 - The README still describes the project mostly as a simpler single-agent workflow, while the actual default runtime is now the section-oriented Phase 2 path.
 - Tests exist, but they are still heavier on graph shape and smoke coverage than on deep node correctness and grounding quality.

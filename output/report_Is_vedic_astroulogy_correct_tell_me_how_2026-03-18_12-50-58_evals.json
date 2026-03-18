@@ -1,0 +1,42 @@
+{
+  "claim_support": {
+    "score": 0.8,
+    "reasoning": "The report contains a high density of citations supporting major claims, but a few assertions lack direct citations, which slightly reduces the overall score."
+  },
+  "section_completeness": {
+    "score": 0.8,
+    "reasoning": "The report addresses most sections from the outline substantively, particularly the research question, background, claims, and methodology. However, it lacks detailed coverage of sections like statistical analysis, potential confounds, and ethical considerations, which are either missing or not sufficiently elaborated."
+  },
+  "source_quality": {
+    "score": 0.5,
+    "reasoning": "The sources include a mix of primary and official sources, but many are dated and some lack clear credibility. There is an over-reliance on older and less credible sources, which affects the overall quality."
+  },
+  "conflict_handling": {
+    "score": 0.8,
+    "reasoning": "The report acknowledges the methodological heterogeneity of Vedic astrology and the challenges it poses for empirical validation, indicating an awareness of uncertainties. However, it does not explicitly surface any contradictions or contested claims within the evidence itself, which limits its score."
+  },
+  "stop_decision": {
+    "score": 1.0,
+    "reasoning": "The agent addressed all critical knowledge gaps and provided comprehensive coverage across all sections, stopping at the right time."
+  },
+  "comparative_breadth": {
+    "score": 0.8,
+    "reasoning": "The report does not present a comparison query, as it focuses on evaluating Vedic astrology's predictive claims rather than comparing multiple entities."
+  },
+  "factual_accuracy": {
+    "score": 0.8,
+    "reasoning": "Most claims in the report align with the evidence provided, particularly regarding the null results of astrology studies and the need for rigorous methodologies. However, some claims about the operationalization and empirical validation of astrology may extend beyond the direct evidence snippets."
+  },
+  "citation_relevance": {
+    "score": 0.4,
+    "reasoning": "Many citations do not clearly support the specific claims they are attached to, with some being vague or irrelevant to the adjacent claims. For example, citation [90] does not provide relevant evidence for the claim about preregistration and operationalization. Other citations, while somewhat related, do not directly substantiate the claims made."
+  },
+  "synthesis_quality": {
+    "score": 0.9,
+    "reasoning": "The report demonstrates strong analytical depth, with a clear logical narrative flow and effective synthesis of evidence. It integrates various aspects of Vedic astrology into a coherent framework, addressing both empirical and methodological concerns. The executive summary provides a clear takeaway, although some sections could benefit from further elaboration on specific findings."
+  },
+  "tool_trajectory": {
+    "score": 0.4,
+    "reasoning": "While the section coverage scores are generally acceptable, there are significant critical gaps in multiple sections that were not resolved or acknowledged, indicating a lack of thoroughness. The deduplication ratio is reasonable, but the overall evidence yield does not sufficiently support the sections due to the presence of critical gaps."
+  }
+}

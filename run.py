@@ -2,6 +2,7 @@
 """CLI entry point for the deep research agent."""
 
 import argparse
+import asyncio
 import json
 import os
 import re
@@ -170,6 +171,11 @@ def main() -> None:
         help="Enable LangSmith tracing for this run",
     )
     parser.add_argument(
+        "--langsmith-light",
+        action="store_true",
+        help="Enable LangSmith with inputs/outputs hidden to stay under 20MB trace limit (structure, timing, errors only)",
+    )
+    parser.add_argument(
         "--langsmith-project",
         type=str,
         default="deep-research-agent",
@@ -227,9 +233,15 @@ def main() -> None:
         init_log(log_path)
         print(f"Log file: {log_path}")
 
-    if args.langsmith:
+    if args.langsmith or args.langsmith_light:
         os.environ["LANGSMITH_TRACING"] = "true"
         os.environ["LANGSMITH_PROJECT"] = args.langsmith_project
+    if args.langsmith_light:
+        # Keep trace under ~20MB: hide large inputs/outputs (prompts, evidence, state).
+        # You still get: run tree, node names, timing, errors, metadata.
+        os.environ["LANGSMITH_HIDE_INPUTS"] = "true"
+        os.environ["LANGSMITH_HIDE_OUTPUTS"] = "true"
+        print("LangSmith lightweight tracing (inputs/outputs hidden to avoid size limit)")
 
     # Build graph: with checkpointer for streaming + optional interrupt for plan approval
     checkpointer = MemorySaver() if MemorySaver else None
@@ -372,8 +384,8 @@ def main() -> None:
         print(f"Trace saved to {trace_path}")
 
     if args.eval:
-        from deep_research.evals import run_evals
-        evals = run_evals(
+        from deep_research.evals import async_run_evals
+        evals = asyncio.run(async_run_evals(
             report_markdown=report,
             report_outline=final.get("report_outline") or [],
             writer_evidence=final.get("writer_evidence_subset") or [],
@@ -381,10 +393,26 @@ def main() -> None:
             section_results=final.get("section_results"),
             research_trace=trace,
             query=query,
-        )
+        ))
         print("\n[Evals]")
-        for name, (score, reason) in evals.items():
+        evals_for_json = {}
+        for name, result in evals.items():
+            if len(result) == 3:
+                score, reason, section_scores = result
+                evals_for_json[name] = {"score": score, "reasoning": reason, "section_scores": section_scores}
+            else:
+                score, reason = result
+                evals_for_json[name] = {"score": score, "reasoning": reason}
+        for name, result in evals.items():
+            score, reason = result[0], result[1]
             print(f"  {name}: {score:.2f} - {reason}")
+            if len(result) == 3:
+                for s in result[2]:
+                    print(f"    [{s.get('section_id')}] {s.get('title', '')}: {s.get('score', 0):.2f} - {s.get('reason', '')}")
+        evals_path = output_path.replace(".md", "_evals.json")
+        with open(evals_path, "w", encoding="utf-8") as f:
+            json.dump(evals_for_json, f, indent=2)
+        print(f"Evals saved to {evals_path}")
 
     print(report)
 

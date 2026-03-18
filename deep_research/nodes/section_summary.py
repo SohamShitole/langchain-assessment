@@ -27,12 +27,45 @@ def generate_section_summary(
     section_title = section_task.get("title", "")
     section_goal = section_task.get("goal", "")
 
-    # Build top-N evidence snippets so the summary is grounded in actual content
-    top_n = sorted(evidence, key=lambda e: e.get("relevance_score", 0), reverse=True)[:10]
-    top_evidence = "\n\n".join(
-        f"[{i+1}] ({e.get('url', 'N/A')}): {(e.get('snippet') or '')[:500]}"
-        for i, e in enumerate(top_n)
+    # Build evidence for the summary: either budget-based (full body up to N chars) or top-N with per-snippet cap
+    top_n = cfg.get("section_summary_top_n", 25)
+    snippet_chars = cfg.get("section_summary_snippet_chars", 1200)
+    evidence_max_chars = cfg.get("section_summary_evidence_max_chars", 0) or 0
+
+    sorted_evidence = sorted(
+        evidence, key=lambda e: e.get("relevance_score", 0), reverse=True
     )
+
+    if evidence_max_chars > 0:
+        # Full evidence body: include as many items as fit within the character budget
+        lines: list[str] = []
+        used = 0
+        sep_len = 2  # "\n\n"
+        for i, e in enumerate(sorted_evidence):
+            snip = (e.get("snippet") or "").strip()
+            if not snip:
+                continue
+            prefix = f"[{i+1}] ({e.get('url', 'N/A')}): "
+            need = (sep_len if lines else 0) + len(prefix) + len(snip)
+            if used + need > evidence_max_chars:
+                remaining = evidence_max_chars - used - (sep_len if lines else 0) - len(prefix) - 3  # 3 for "..."
+                if remaining > 100:
+                    snip = snip[:remaining] + "..."
+                else:
+                    break
+            line = prefix + snip
+            lines.append(line)
+            used += (sep_len if lines else 0) + len(line)
+            if used >= evidence_max_chars:
+                break
+        top_evidence = "\n\n".join(lines) if lines else "(No evidence text)"
+    else:
+        # Top-N with per-snippet character cap
+        selected = sorted_evidence[:top_n]
+        top_evidence = "\n\n".join(
+            f"[{i+1}] ({e.get('url', 'N/A')}): {(e.get('snippet') or '')[:snippet_chars]}"
+            for i, e in enumerate(selected)
+        )
 
     prompt = get_prompt("section_summary", cfg, SECTION_SUMMARY_PROMPT).format(
         section_id=section_id,

@@ -135,6 +135,8 @@ You can run the research graph locally and visualize it in [LangSmith Studio](ht
 
 To avoid sending trace data to LangSmith while testing locally, set `LANGSMITH_TRACING=false` in your `.env`.
 
+**Tracing large runs:** Deep research runs can produce traces over LangSmith’s ~20MB ingest limit. Use **`--langsmith-light`** to trace while staying under the limit: inputs/outputs are hidden, but you still get the run tree, node names, timing, and errors. For full local fidelity use `--trace` (saves `*_trace.json`) and `--log` (saves prompts/decisions).
+
 ### Deployed graphs
 
 If you [deploy](https://docs.langchain.com/langsmith/deployment-quickstart) this app (e.g. via LangGraph Cloud), open the deployment in the LangSmith UI and select **Studio** to connect to the live deployment and manage threads, assistants, and memory there.

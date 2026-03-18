@@ -16,6 +16,35 @@ from deep_research.research_logger import log_node_end, log_node_start, log_prom
 from deep_research.state import ResearchState
 
 
+def _format_conflict_resolutions(global_conflicts: list[dict]) -> str:
+    """Build writer-facing summary of adjudicated conflicts (winning claim, verdict, caveats)."""
+    if not global_conflicts:
+        return "None."
+    lines = []
+    for i, c in enumerate(global_conflicts, 1):
+        if not isinstance(c, dict):
+            continue
+        claims = c.get("conflicting_claims") or []
+        verdict = (c.get("resolution_verdict") or "").strip()
+        winning = (c.get("winning_claim") or "").strip()
+        resolved = c.get("resolved", False)
+        severity = c.get("severity", "medium")
+        sections = c.get("section_ids") or []
+        parts = [f"[Conflict {i}] (severity: {severity})"]
+        if claims:
+            parts.append("Conflicting claims: " + "; ".join(claims[:2]))
+        if resolved and winning:
+            parts.append(f"Winning claim: {winning}")
+        if verdict:
+            parts.append(f"Verdict: {verdict}")
+        if not resolved:
+            parts.append("(Unresolved — surface uncertainty in the report.)")
+        if sections:
+            parts.append(f"Relevant sections: {', '.join(sections)}")
+        lines.append(" ".join(parts))
+    return "\n\n".join(lines) if lines else "None."
+
+
 def write_report(state: ResearchState, config: RunnableConfig | None = None) -> dict:
     """Generate final markdown report.
 
@@ -55,6 +84,7 @@ def write_report(state: ResearchState, config: RunnableConfig | None = None) -> 
     )
 
     outline_str = json.dumps(outline, indent=2)
+    conflict_resolutions = _format_conflict_resolutions(global_conflicts)
 
     if section_drafts:
         # ── Assembly mode: stitch pre-written section drafts ──
@@ -71,6 +101,7 @@ def write_report(state: ResearchState, config: RunnableConfig | None = None) -> 
             section_drafts=drafts_str,
             sources_list=sources_str,
             report_structure=report_structure,
+            conflict_resolutions=conflict_resolutions,
         )
     elif section_summaries:
         # ── Enhanced mode (legacy Phase 2, no section drafts) ──
@@ -85,6 +116,7 @@ def write_report(state: ResearchState, config: RunnableConfig | None = None) -> 
             section_summaries=summaries_str,
             writer_evidence=writer_evidence_str,
             report_structure=report_structure,
+            conflict_resolutions=conflict_resolutions,
         )
     else:
         # ── Basic mode (Phase 1) ──
@@ -100,6 +132,7 @@ def write_report(state: ResearchState, config: RunnableConfig | None = None) -> 
             knowledge_gaps=gaps_str,
             coverage_status=coverage_status,
             report_structure=report_structure,
+            conflict_resolutions=conflict_resolutions,
         )
 
     log_prompt("write_report", prompt, model=model_name)

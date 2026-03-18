@@ -25,20 +25,24 @@ DEFAULT_SECTION_MAX_ITERATIONS = 3
 DEFAULT_SECTION_QUERIES_PER_ITERATION = 3
 DEFAULT_MAX_PARALLEL_SECTIONS = 6
 DEFAULT_CONFLICT_RESOLUTION_ENABLED = True
+# Section summary: how much evidence the summary node sees (improves summary quality)
+DEFAULT_SECTION_SUMMARY_TOP_N = 25
+DEFAULT_SECTION_SUMMARY_SNIPPET_CHARS = 1200
+DEFAULT_SECTION_SUMMARY_EVIDENCE_MAX_CHARS = 0  # 0 = use top_n + snippet_chars; >0 = fill until this budget
 
 # Model allocation per plan: start cheap, escalate for complex queries
-DEFAULT_CLASSIFIER_MODEL = "gpt-4o-mini"  # gpt-5-nano when available
-DEFAULT_PLANNER_SIMPLE_MODEL = "gpt-4o-mini"  # gpt-5-mini
-DEFAULT_PLANNER_COMPLEX_MODEL = "gpt-4o"  # gpt-5.4
-DEFAULT_NORMALIZER_MODEL = "gpt-4o-mini"
-DEFAULT_COVERAGE_MODEL = "gpt-4o-mini"
-DEFAULT_WRITER_MODEL = "gpt-4o"  # gpt-5.4 - strongest for final synthesis
-DEFAULT_DECOMPOSE_MODEL = "gpt-4o"
-DEFAULT_SECTION_QUERY_MODEL = "gpt-4o-mini"
-DEFAULT_SECTION_SUMMARY_MODEL = "gpt-4o-mini"
-DEFAULT_SECTION_COVERAGE_MODEL = "gpt-4o-mini"
-DEFAULT_CONFLICT_DETECT_MODEL = "gpt-4o-mini"
-DEFAULT_CONFLICT_RESOLVER_MODEL = "gpt-4o-mini"
+DEFAULT_CLASSIFIER_MODEL = "gpt-5-nano"  # gpt-5-nano when available
+DEFAULT_PLANNER_SIMPLE_MODEL = "gpt-5-mini"  # gpt-5-mini
+DEFAULT_PLANNER_COMPLEX_MODEL = "gpt-5.2"  # gpt-5.4
+DEFAULT_NORMALIZER_MODEL = "gpt-5-nano"
+DEFAULT_COVERAGE_MODEL = "gpt-5-nano"
+DEFAULT_WRITER_MODEL = "gpt-5.2"  # gpt-5.4 - strongest for final synthesis
+DEFAULT_DECOMPOSE_MODEL = "gpt-5.2"
+DEFAULT_SECTION_QUERY_MODEL = "gpt-5-mini"
+DEFAULT_SECTION_SUMMARY_MODEL = "gpt-5-mini"
+DEFAULT_SECTION_COVERAGE_MODEL = "gpt-5-nano"
+DEFAULT_CONFLICT_DETECT_MODEL = "gpt-5-mini"
+DEFAULT_CONFLICT_RESOLVER_MODEL = "gpt-5-mini"
 
 # Default ordered sections for the final report (configurable via report.structure in config.yaml)
 DEFAULT_REPORT_STRUCTURE = [
@@ -86,6 +90,9 @@ _YAML_TO_FLAT = {
         "max_iterations": "section_max_iterations",
         "queries_per_iteration": "section_queries_per_iteration",
         "max_parallel": "max_parallel_sections",
+        "summary_top_n": "section_summary_top_n",
+        "summary_snippet_chars": "section_summary_snippet_chars",
+        "summary_evidence_max_chars": "section_summary_evidence_max_chars",
     },
     "conflict": {
         "resolution_enabled": "conflict_resolution_enabled",
@@ -241,6 +248,16 @@ def get_config(config: RunnableConfig | dict[str, Any] | None) -> dict[str, Any]
         ),
         "max_parallel_sections": cfg.get(
             "max_parallel_sections", DEFAULT_MAX_PARALLEL_SECTIONS
+        ),
+        "section_summary_top_n": cfg.get(
+            "section_summary_top_n", DEFAULT_SECTION_SUMMARY_TOP_N
+        ),
+        "section_summary_snippet_chars": cfg.get(
+            "section_summary_snippet_chars", DEFAULT_SECTION_SUMMARY_SNIPPET_CHARS
+        ),
+        "section_summary_evidence_max_chars": cfg.get(
+            "section_summary_evidence_max_chars",
+            DEFAULT_SECTION_SUMMARY_EVIDENCE_MAX_CHARS,
         ),
         "conflict_resolution_enabled": cfg.get(
             "conflict_resolution_enabled", DEFAULT_CONFLICT_RESOLUTION_ENABLED

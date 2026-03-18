@@ -2,7 +2,7 @@
 
 import re
 
-from deep_research.evals.judge import judge_call
+from deep_research.evals.judge import judge_call, async_judge_call
 
 RUBRIC = """Score 0-10: For each citation [n] in the report, does evidence item n actually support the specific claim or sentence it is attached to?
 - This is per-citation relevance: the cited source should substantiate that exact claim, not just be topically related.
@@ -53,3 +53,15 @@ def eval_citation_relevance(report_markdown: str, writer_evidence: list[dict]) -
     citation_contexts = _extract_citation_contexts(report_markdown, writer_evidence, max_samples=15)
     context = f"CITATION SAMPLES (claim context + cited evidence):\n\n{citation_contexts}"
     return judge_call(RUBRIC, context)
+
+
+async def async_eval_citation_relevance(report_markdown: str, writer_evidence: list[dict]) -> tuple[float, str]:
+    """Async: check whether each citation supports the claim it annotates (LLM-as-judge)."""
+    if not report_markdown:
+        return 0.0, "Empty report"
+    if not writer_evidence:
+        return 0.5, "No evidence to check citations against"
+
+    citation_contexts = _extract_citation_contexts(report_markdown, writer_evidence, max_samples=15)
+    context = f"CITATION SAMPLES (claim context + cited evidence):\n\n{citation_contexts}"
+    return await async_judge_call(RUBRIC, context)

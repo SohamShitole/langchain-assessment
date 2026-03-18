@@ -93,9 +93,13 @@ Knowledge gaps (for context; do not add a caveats section):
 
 Coverage status: {coverage_status}
 
+Conflict resolution guidance (if any — prefer winning claims; note caveats where unresolved):
+{conflict_resolutions}
+
 Requirements:
 - Use inline citations: [1], [2], etc. corresponding to the numbered evidence
 - Do not make claims not supported by the evidence
+- Where conflict_resolutions exist, prefer the stated winning_claim and resolution_verdict
 - Mention uncertainty where evidence is weak or incomplete
 - Structure: {report_structure}
 - Use section titles only in headings (e.g. "## Introduction" or "## Applications and Use Cases"); do NOT include internal IDs like s1, s2, s3
@@ -309,17 +313,20 @@ Return JSON: {{"search_queries": ["query 1", "query 2", ...]}}"""
 
 CONFLICT_ADJUDICATE_PROMPT = """You are a research conflict adjudicator. Determine which claims are best supported.
 
-Conflicts:
+Conflicts (contradictory claims to resolve):
 {conflicts}
 
-Additional evidence gathered to resolve them:
+Original evidence (snippets and metadata for the conflicting sources — use credibility_score, source_type when present):
+{original_evidence}
+
+Additional evidence gathered to resolve them (disambiguation search):
 {new_evidence}
 
 For each conflict:
-1. Weigh source credibility (credibility_score, source_type: official > government > press > blog > aggregator)
-2. Weigh recency (prefer recent over dated)
-3. Weigh primary-source status (prefer primary over secondary)
-4. Determine which claim is better supported or if the conflict remains unresolved
+1. Weigh source credibility: use credibility_score and source_type when available (official > government > press > blog > aggregator).
+2. Weigh recency (prefer recent over dated) and primary-source status (prefer primary over secondary).
+3. Use both original and new evidence to decide which claim is better supported, or mark unresolved if evidence is inconclusive.
+4. Output a clear resolution_verdict and winning_claim so the report writer can prefer the winning claim and add caveats for unresolved conflicts.
 
 Return JSON:
 {{
@@ -348,9 +355,13 @@ Section summaries (use these as the backbone):
 Evidence to cite (ONLY use these - do not make up facts):
 {writer_evidence}
 
+Conflict resolution guidance (from adjudication — prefer winning claims and note caveats where relevant):
+{conflict_resolutions}
+
 Requirements:
 - Use inline citations: [1], [2], etc. corresponding to the numbered evidence
 - Synthesize from section summaries; do not ignore them
+- Where conflict_resolutions exist, prefer the stated winning_claim and resolution_verdict; surface remaining uncertainty only when conflict remains unresolved
 - Surface contradictions explicitly in the narrative where relevant - do not silently flatten conflicting evidence
 - Prefer primary sources in citations when available
 - Structure: {report_structure}
@@ -396,9 +407,13 @@ Pre-written section drafts (each already contains inline citations):
 Sources list:
 {sources_list}
 
+Conflict resolution guidance (prefer winning claims; add brief caveats where conflicts remained unresolved):
+{conflict_resolutions}
+
 Requirements:
 - Produce a complete markdown report with this structure: {report_structure}
 - Preserve ALL inline citations [N] from the section drafts exactly as they appear
+- Where conflict_resolutions exist, if the narrative contradicts a stated winning_claim, add a short caveat or align with the resolution_verdict
 - Do NOT invent new claims or citations
 - Use section titles only in headings; do NOT include internal IDs like s1, s2, s3
 - Do NOT wrap output in code blocks

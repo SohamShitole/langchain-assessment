@@ -60,3 +60,12 @@ def conflict_route(state: ResearchState) -> str:
     reason = "no conflicts" if not conflict_resolution_needed else "resolution disabled"
     log_route("detect_global_gaps_and_conflicts", READY_TO_WRITE, reason)
     return READY_TO_WRITE
+
+
+def stop_eval_route(state: ResearchState) -> str:
+    """Route after eval_stop_gate: more research or proceed to writer."""
+    if not state.get("research_sufficient") and (state.get("research_retry_count") or 0) <= 1:
+        log_route("eval_stop_gate", CONFLICT_RESOLUTION, "research insufficient, retry")
+        return CONFLICT_RESOLUTION
+    log_route("eval_stop_gate", READY_TO_WRITE, "research sufficient or budget exhausted")
+    return READY_TO_WRITE

@@ -52,13 +52,18 @@ def detect_global_gaps_and_conflicts(
     model_name = cfg.get("conflict_detect_model") or "gpt-4o-mini"
     resolution_enabled = cfg.get("conflict_resolution_enabled", True)
 
-    # Build summary for prompt (avoid token overflow)
+    # Build summary for prompt (avoid token overflow; include evidence_meta for credibility/source_type)
     summary: list[dict] = []
+    snippet_chars = 500  # slightly more context than 300 for better conflict detection
     for m in merged[:80]:
+        meta = m.get("evidence_meta") or {}
         summary.append({
             "url": m.get("url", ""),
-            "snippet": (m.get("snippet") or "")[:300],
+            "snippet": (m.get("snippet") or "")[:snippet_chars],
             "supporting_sections": m.get("supporting_sections", []),
+            "credibility": meta.get("credibility"),
+            "source_type": meta.get("source_type"),
+            "credibility_score": meta.get("credibility_score"),
         })
     summary_str = json.dumps(summary, indent=2)
 
@@ -197,13 +202,28 @@ def conflict_resolution_research(
     merged = merged + new_items
 
     # --- LLM adjudication: weigh credibility, recency, primary-source status ---
+    # Include both original conflicting evidence (from merged) and new disambiguation evidence with metadata when available
+    orig_urls = {u for c in conflicts for u in (c.get("source_urls") or [])}
+    orig_snippets = [m for m in merged if (m.get("url") or "") in orig_urls]
     new_evidence_summary = json.dumps(
-        [{"url": item.get("url", ""), "snippet": (item.get("snippet") or "")[:500]} for item in new_items],
+        [{"url": item.get("url", ""), "snippet": (item.get("snippet") or "")[:500], "source": "disambiguation_search"} for item in new_items],
+        indent=2,
+    )
+    orig_evidence_summary = json.dumps(
+        [
+            {
+                "url": m.get("url", ""),
+                "snippet": (m.get("snippet") or "")[:400],
+                "evidence_meta": m.get("evidence_meta") or {},
+            }
+            for m in orig_snippets[:20]
+        ],
         indent=2,
     )
     adjudication_prompt = get_prompt("conflict_adjudicate", cfg, CONFLICT_ADJUDICATE_PROMPT).format(
         conflicts=conflicts_str,
         new_evidence=new_evidence_summary,
+        original_evidence=orig_evidence_summary,
     )
     log_prompt("conflict_adjudication", adjudication_prompt, model=model_name)
 
@@ -227,4 +247,30 @@ def conflict_resolution_research(
         "merged_evidence": merged,
         "global_conflicts": updated_conflicts,
         "global_seen_urls": seen_urls,
+    }
+
+
+def eval_stop_gate(
+    state: ResearchState,
+    config: RunnableConfig | None = None,
+) -> dict:
+    """Decision gate: run eval_stop_decision; route to more research or to prepare_writer_context."""
+    log_node_start("eval_stop_gate", config)
+    research_trace = state.get("research_trace") or {}
+    knowledge_gaps = state.get("knowledge_gaps") or []
+    retry_count = state.get("research_retry_count") or 0
+
+    from deep_research.evals.stop_decision import eval_stop_decision
+
+    score, reason = eval_stop_decision(research_trace, knowledge_gaps)
+    research_sufficient = score >= 0.6 or retry_count >= 1
+    retry_count += 1
+
+    log_decision("eval_stop_gate", f"score={score:.2f}, sufficient={research_sufficient}", {"reasoning": reason})
+    log_node_end("eval_stop_gate", {"stop_eval_score": score, "research_sufficient": research_sufficient})
+
+    return {
+        "stop_eval_score": score,
+        "research_sufficient": research_sufficient,
+        "research_retry_count": retry_count,
     }

@@ -176,9 +176,14 @@ def test_evals_run():
     assert "synthesis_quality" in results
     assert "tool_trajectory" in results
     assert len(results) == 10
-    for k, (score, reason) in results.items():
+    for k, result in results.items():
+        score, reason = result[0], result[1]
         assert 0 <= score <= 1
         assert isinstance(reason, str)
+        if k == "section_completeness" and len(result) == 3:
+            for s in result[2]:
+                assert "section_id" in s and "score" in s
+                assert 0 <= s["score"] <= 1
 
 
 def _has_search_key():
