@@ -11,7 +11,7 @@ from deep_research.research_logger import log_node_end, log_node_start, log_prom
 from deep_research.state import SectionWorkerState
 
 
-def generate_section_summary(
+async def generate_section_summary(
     state: SectionWorkerState,
     config: RunnableConfig | None = None,
 ) -> dict:
@@ -77,7 +77,7 @@ def generate_section_summary(
     log_prompt("generate_section_summary", prompt, model=model_name)
 
     llm = ChatOpenAI(model=model_name, temperature=0)
-    raw = llm.invoke([{"role": "user", "content": prompt}])
+    raw = await llm.ainvoke([{"role": "user", "content": prompt}])
     text = raw.content if hasattr(raw, "content") else str(raw)
 
     text = text.strip()

@@ -34,7 +34,7 @@ class CoverageOutput(BaseModel):
     reasoning: str = Field(default="", description="Brief explanation")
 
 
-def assess_coverage(
+async def assess_coverage(
     state: ResearchState,
     config: RunnableConfig | None = None,
 ) -> dict:
@@ -66,7 +66,7 @@ def assess_coverage(
 
     llm = ChatOpenAI(model=model_name, temperature=0)
     structured = llm.with_structured_output(CoverageOutput, method="function_calling")
-    result = structured.invoke([{"role": "user", "content": prompt}])
+    result = await structured.ainvoke([{"role": "user", "content": prompt}])
 
     gaps = [
         {"section_id": g.section_id, "description": g.description, "critical": g.critical}

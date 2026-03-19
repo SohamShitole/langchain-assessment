@@ -38,6 +38,11 @@ from deep_research.section_graph import create_section_worker_graph
 from deep_research.state import ResearchState
 
 
+def _report_search_error(state: ResearchState, config=None) -> dict:
+    """No-op node: error_message is already in state; flow ends so UI can show it."""
+    return {}
+
+
 def create_research_graph(
     checkpointer=None,
     interrupt_after: list[str] | None = None,
@@ -60,6 +65,7 @@ def create_research_graph(
     builder.add_node("create_research_plan", create_research_plan)
     builder.add_node("decompose_into_sections", decompose_into_sections)
     builder.add_node("section_worker", section_subgraph)
+    builder.add_node("report_search_error", _report_search_error)
     builder.add_node("merge_section_evidence", merge_section_evidence)
     builder.add_node("detect_global_gaps_and_conflicts", detect_global_gaps_and_conflicts)
     builder.add_node("conflict_resolution_research", conflict_resolution_research)
@@ -74,7 +80,16 @@ def create_research_graph(
     builder.add_edge("classify_complexity", "create_research_plan")
     builder.add_edge("create_research_plan", "decompose_into_sections")
     builder.add_conditional_edges("decompose_into_sections", dispatch_sections)
-    builder.add_edge("section_worker", "merge_section_evidence")
+
+    def after_section_worker_route(state: ResearchState):
+        return "report_search_error" if state.get("error_message") else "merge_section_evidence"
+
+    builder.add_conditional_edges(
+        "section_worker",
+        after_section_worker_route,
+        {"report_search_error": "report_search_error", "merge_section_evidence": "merge_section_evidence"},
+    )
+    builder.add_edge("report_search_error", "__end__")
     builder.add_edge("merge_section_evidence", "detect_global_gaps_and_conflicts")
     builder.add_conditional_edges(
         "detect_global_gaps_and_conflicts",
@@ -114,6 +129,7 @@ def create_research_graph_phase1():
     builder.add_node("classify_complexity", classify_complexity)
     builder.add_node("plan_and_generate_queries", plan_and_generate_queries)
     builder.add_node("run_search", run_search)
+    builder.add_node("report_search_error", _report_search_error)
     builder.add_node("normalize_and_map_evidence", normalize_and_map_evidence)
     builder.add_node("assess_coverage", assess_coverage)
     builder.add_node("prepare_writer_context", prepare_writer_context)
@@ -124,7 +140,12 @@ def create_research_graph_phase1():
     builder.add_edge("ingest_request", "classify_complexity")
     builder.add_edge("classify_complexity", "plan_and_generate_queries")
     builder.add_edge("plan_and_generate_queries", "run_search")
-    builder.add_edge("run_search", "normalize_and_map_evidence")
+    builder.add_conditional_edges(
+        "run_search",
+        lambda s: "report_search_error" if s.get("error_message") else "normalize_and_map_evidence",
+        {"report_search_error": "report_search_error", "normalize_and_map_evidence": "normalize_and_map_evidence"},
+    )
+    builder.add_edge("report_search_error", "__end__")
     builder.add_edge("normalize_and_map_evidence", "assess_coverage")
     builder.add_conditional_edges(
         "assess_coverage",

@@ -29,7 +29,7 @@ class NormalizeOutput(BaseModel):
     items: list[EvidenceItem] = Field(default_factory=list)
 
 
-def normalize_and_map_evidence(
+async def normalize_and_map_evidence(
     state: ResearchState,
     config: RunnableConfig | None = None,
 ) -> dict:
@@ -68,7 +68,7 @@ def normalize_and_map_evidence(
 
     llm = ChatOpenAI(model=model_name, temperature=0)
     structured = llm.with_structured_output(NormalizeOutput, method="function_calling")
-    result = structured.invoke([{"role": "user", "content": prompt}])
+    result = await structured.ainvoke([{"role": "user", "content": prompt}])
 
     url_to_raw: dict[str, str] = {
         (r.get("url") or ""): (r.get("raw_content") or "")

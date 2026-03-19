@@ -26,9 +26,17 @@ def create_section_worker_graph():
     builder.add_node("section_assess_coverage", section_assess_coverage)
     builder.add_node("generate_section_summary", generate_section_summary)
 
+    def after_section_search_route(state):
+        # Return destination key (LangGraph expects key into path_map, not list index).
+        return END if state.get("error_message") else "section_normalize"
+
     builder.add_edge(START, "generate_section_queries")
     builder.add_edge("generate_section_queries", "section_search")
-    builder.add_edge("section_search", "section_normalize")
+    builder.add_conditional_edges(
+        "section_search",
+        after_section_search_route,
+        {END: END, "section_normalize": "section_normalize"},
+    )
     builder.add_edge("section_normalize", "section_assess_coverage")
     builder.add_conditional_edges(
         "section_assess_coverage",

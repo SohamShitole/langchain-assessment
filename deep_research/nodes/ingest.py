@@ -8,7 +8,7 @@ from deep_research.research_logger import log_node_end, log_node_start
 from deep_research.state import ResearchState
 
 
-def ingest_request(
+async def ingest_request(
     state: ResearchState,
     config: RunnableConfig | None = None,
 ) -> dict:
@@ -37,6 +37,7 @@ def ingest_request(
     max_iterations = cfg["max_iterations"]
     conflict_resolution_enabled = cfg.get("conflict_resolution_enabled", True)
 
+    log_node_end("ingest_request", {"query": query[:80] + "..." if len(query) > 80 else query, "max_iterations": max_iterations})
     return {
         "query": query,
         "iteration": 0,
@@ -62,4 +63,3 @@ def ingest_request(
         "research_trace": {},
         "conflict_resolution_enabled": conflict_resolution_enabled,
     }
-    log_node_end("ingest_request", {"query": query[:80] + "..." if len(query) > 80 else query, "max_iterations": max_iterations})

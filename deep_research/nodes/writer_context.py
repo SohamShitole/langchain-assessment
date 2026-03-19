@@ -1,5 +1,6 @@
 """prepare_writer_context node - curate evidence subset for the writer."""
 
+import asyncio
 import re
 import ssl
 from urllib.error import URLError
@@ -58,6 +59,13 @@ def _exa_get_contents(urls: list[str], max_chars: int = 5000) -> dict[str, str]:
     return out
 
 
+async def _exa_get_contents_async(urls: list[str], max_chars: int = 5000) -> dict[str, str]:
+    """Async wrapper for Exa get_contents (runs in thread)."""
+    if not urls:
+        return {}
+    return await asyncio.to_thread(_exa_get_contents, urls, max_chars)
+
+
 def _tavily_extract(
     urls: list[str], extract_depth: str = "basic", max_chars: int = 5000
 ) -> dict[str, str]:
@@ -71,6 +79,35 @@ def _tavily_extract(
     tool = TavilyExtract(extract_depth=extract_depth)
     try:
         resp = tool.invoke({"urls": urls})
+    except Exception:
+        return {}
+    if not isinstance(resp, dict):
+        return {}
+    results = resp.get("results") or []
+    out: dict[str, str] = {}
+    for r in results:
+        if not isinstance(r, dict):
+            continue
+        url = r.get("url") or ""
+        raw = r.get("raw_content") or ""
+        if url and raw:
+            out[url] = raw[:max_chars]
+    return out
+
+
+async def _tavily_extract_async(
+    urls: list[str], extract_depth: str = "basic", max_chars: int = 5000
+) -> dict[str, str]:
+    """Async Tavily Extract."""
+    if not urls:
+        return {}
+    try:
+        from langchain_tavily import TavilyExtract
+    except ImportError:
+        return {}
+    tool = TavilyExtract(extract_depth=extract_depth)
+    try:
+        resp = await tool.ainvoke({"urls": urls})
     except Exception:
         return {}
     if not isinstance(resp, dict):
@@ -108,12 +145,20 @@ def _fetch_full_page(url: str, max_chars: int) -> str | None:
         return None
 
 
-def prepare_writer_context(
+async def _fetch_full_page_async(url: str, max_chars: int) -> tuple[str, str | None]:
+    """Fetch full page in thread; returns (url, content)."""
+    content = await asyncio.to_thread(_fetch_full_page, url, max_chars)
+    return (url, content)
+
+
+async def prepare_writer_context(
     state: ResearchState,
     config: RunnableConfig | None = None,
 ) -> dict:
     """Rank evidence, ensure section coverage, cap volume, output writer_evidence_subset.
-    Phase 2: uses merged_evidence and supporting_sections when available."""
+    Phase 2: uses merged_evidence and supporting_sections when available.
+    Full-page enrichment uses async Tavily/Exa and parallel trafilatura fallback.
+    """
     log_node_start("prepare_writer_context", config)
     # Prefer Phase 2 merged_evidence; fallback to Phase 1 evidence_items
     merged = list(state.get("merged_evidence") or [])
@@ -193,7 +238,7 @@ def prepare_writer_context(
         chosen.append(e)
         used_urls.add(url)
 
-    # Enrich with full page content when enabled
+    # Enrich with full page content when enabled (async: Tavily -> Exa -> parallel trafilatura)
     if fetch_full:
         enriched: list[dict] = []
         needs_extract: list[str] = []
@@ -204,7 +249,6 @@ def prepare_writer_context(
                 continue
             raw = item.get("raw_content") or ""
             if raw:
-                # Already have raw_content from search; use it (truncate if needed)
                 full_text = raw[:max_chars]
                 if len(full_text) > len(item.get("snippet") or ""):
                     item = dict(item)
@@ -214,23 +258,28 @@ def prepare_writer_context(
                 needs_extract.append(url)
                 enriched.append(dict(item))
 
-        # Batch-extract missing URLs: Tavily first, then Exa, then trafilatura per-URL
         if needs_extract:
-            extracted = _tavily_extract(needs_extract, extract_depth=extract_depth, max_chars=max_chars)
+            extracted = await _tavily_extract_async(
+                needs_extract, extract_depth=extract_depth, max_chars=max_chars
+            )
             still_needed = [u for u in needs_extract if not extracted.get(u)]
             if still_needed:
-                extracted.update(_exa_get_contents(still_needed, max_chars))
+                extracted.update(await _exa_get_contents_async(still_needed, max_chars))
+            still_needed = [u for u in still_needed if not extracted.get(u)]
+            # Parallel trafilatura fallback for remaining URLs
+            if still_needed and TRAFILATURA_AVAILABLE:
+                fallback_results = await asyncio.gather(
+                    *[_fetch_full_page_async(u, max_chars) for u in still_needed],
+                    return_exceptions=True,
+                )
+                for res in fallback_results:
+                    if isinstance(res, tuple) and len(res) == 2 and res[1]:
+                        extracted[res[0]] = res[1]
             for item in enriched:
                 url = (item.get("url") or "").strip()
                 if url in extracted:
                     full_text = extracted[url]
                     if len(full_text) > len(item.get("snippet") or ""):
-                        item["snippet"] = full_text
-                    continue
-                # Fallback to trafilatura if Tavily Extract didn't return content
-                if TRAFILATURA_AVAILABLE:
-                    full_text = _fetch_full_page(url, max_chars)
-                    if full_text and len(full_text) > len(item.get("snippet") or ""):
                         item["snippet"] = full_text
         chosen = enriched
 

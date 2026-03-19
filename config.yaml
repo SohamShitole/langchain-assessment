@@ -5,7 +5,7 @@
 search:
   provider: "tavily" # "exa", "tavily", "gensee", or "gensee_deep"
   max_iterations: 3 # max research loop iterations
-  queries_per_iteration: 30 # search queries generated per iteration
+  queries_per_iteration: 10 # search queries generated per iteration
   results_per_query: 5 # results returned per query
   search_depth: "advanced" # "basic" (1 credit) or "advanced" (2 credits)
   include_raw_content: true # fetch full page content with search results
@@ -13,8 +13,8 @@ search:
 # ── Extract / Enrichment Settings ──
 extract:
   fetch_full_pages: true # enrich evidence with full page content
-  extract_depth: "advanced" # "basic" or "advanced" (for tables/structured data)
-  full_page_max_chars: 30000 # max chars per enriched page
+  extract_depth: "basic" # "basic" or "advanced" (for tables/structured data)
+  full_page_max_chars: 10000 # max chars per enriched page
 
 # ── Model Settings ──
 models:
@@ -36,7 +36,7 @@ models:
 
 # ── Writer Settings ──
 writer:
-  context_max_items: 100 # max evidence items passed to writer
+  context_max_items: 50 # max evidence items passed to writer
 
 # ── Section Worker Settings (Phase 2) ──
 section:
@@ -44,7 +44,7 @@ section:
   queries_per_iteration: 5 # search queries per section iteration
   max_parallel: 10 # max sections to research in parallel
   # Section summary quality: more evidence = better summaries (higher token cost)
-  summary_top_n: 25 # max evidence items passed to section summary (was 10)
+  summary_top_n: 5 # max evidence items passed to section summary (was 10)
   summary_snippet_chars: 1200 # max chars per snippet in summary (was 500)
   # summary_evidence_max_chars: 20000 # optional: fill with full snippets until this budget (0 = use top_n + snippet_chars)
 

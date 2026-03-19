@@ -1,5 +1,6 @@
 """detect_global_gaps_and_conflicts and conflict_resolution_research nodes."""
 
+import asyncio
 import json
 import os
 
@@ -8,7 +9,7 @@ from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, Field
 
 from deep_research.configuration import get_config
-from deep_research.nodes.search import _exa_search, _gensee_search, _tavily_search
+from deep_research.nodes.search import _run_one_query_async
 from deep_research.prompts import CONFLICT_ADJUDICATE_PROMPT, CONFLICT_DETECT_PROMPT, CONFLICT_RESOLVE_PROMPT, get_prompt
 from deep_research.research_logger import log_decision, log_node_end, log_node_start, log_prompt
 from deep_research.state import ResearchState
@@ -41,7 +42,7 @@ class AdjudicationOutput(BaseModel):
     resolved_conflicts: list[ResolvedConflict] = Field(default_factory=list)
 
 
-def detect_global_gaps_and_conflicts(
+async def detect_global_gaps_and_conflicts(
     state: ResearchState,
     config: RunnableConfig | None = None,
 ) -> dict:
@@ -72,7 +73,7 @@ def detect_global_gaps_and_conflicts(
 
     llm = ChatOpenAI(model=model_name, temperature=0)
     structured = llm.with_structured_output(ConflictOutput, method="function_calling")
-    result = structured.invoke([{"role": "user", "content": prompt}])
+    result = await structured.ainvoke([{"role": "user", "content": prompt}])
 
     conflicts = result.conflicts or []
     conflict_resolution_needed = result.conflict_resolution_needed and bool(conflicts)
@@ -92,7 +93,7 @@ def detect_global_gaps_and_conflicts(
     }
 
 
-def conflict_resolution_research(
+async def conflict_resolution_research(
     state: ResearchState,
     config: RunnableConfig | None = None,
 ) -> dict:
@@ -108,7 +109,7 @@ def conflict_resolution_research(
     log_prompt("conflict_resolution_research", prompt, model=model_name)
 
     llm = ChatOpenAI(model=model_name, temperature=0)
-    raw = llm.invoke([{"role": "user", "content": prompt}])
+    raw = await llm.ainvoke([{"role": "user", "content": prompt}])
     text = raw.content if hasattr(raw, "content") else str(raw)
 
     text = text.strip()
@@ -164,23 +165,32 @@ def conflict_resolution_research(
         return {"global_conflicts": conflicts}
 
     seen_urls = {m.get("url") for m in merged if m.get("url")}
-    new_items: list[dict] = []
+    gensee_key = (os.environ.get("GENSEE_API_KEY") or "").strip()
+    use_gensee_deep = False
 
-    for q in queries:
-        try:
-            if use_exa:
-                results = _exa_search(q, max_results, search_type="auto", max_chars=full_page_max_chars)
-            elif use_tavily:
-                results = _tavily_search(
-                    q, max_results,
-                    search_depth=search_depth,
-                    include_raw_content=include_raw_content,
-                )
-            else:
-                results = _gensee_search(q, gensee_key, max_results=max_results)
-        except Exception:
+    tasks = [
+        _run_one_query_async(
+            q,
+            use_gensee_deep=use_gensee_deep,
+            use_exa=use_exa,
+            use_tavily=use_tavily,
+            use_gensee=use_gensee,
+            gensee_key=gensee_key,
+            max_results=max_results,
+            search_depth=search_depth,
+            include_raw_content=include_raw_content,
+            full_page_max_chars=full_page_max_chars,
+            config=config,
+        )
+        for q in queries
+    ]
+    results_list = await asyncio.gather(*tasks, return_exceptions=True)
+
+    new_items: list[dict] = []
+    for res in results_list:
+        if isinstance(res, Exception):
             continue
-        for r in results:
+        for r in res:
             if not isinstance(r, dict):
                 continue
             url = r.get("url") or ""
@@ -230,7 +240,7 @@ def conflict_resolution_research(
     try:
         adj_llm = ChatOpenAI(model=model_name, temperature=0)
         adj_structured = adj_llm.with_structured_output(AdjudicationOutput, method="function_calling")
-        adj_result = adj_structured.invoke([{"role": "user", "content": adjudication_prompt}])
+        adj_result = await adj_structured.ainvoke([{"role": "user", "content": adjudication_prompt}])
         updated_conflicts = [rc.model_dump() for rc in adj_result.resolved_conflicts]
     except Exception:
         # Fallback: mark as unresolved with note
@@ -250,7 +260,7 @@ def conflict_resolution_research(
     }
 
 
-def eval_stop_gate(
+async def eval_stop_gate(
     state: ResearchState,
     config: RunnableConfig | None = None,
 ) -> dict:
@@ -260,9 +270,9 @@ def eval_stop_gate(
     knowledge_gaps = state.get("knowledge_gaps") or []
     retry_count = state.get("research_retry_count") or 0
 
-    from deep_research.evals.stop_decision import eval_stop_decision
+    from deep_research.evals.stop_decision import async_eval_stop_decision
 
-    score, reason = eval_stop_decision(research_trace, knowledge_gaps)
+    score, reason = await async_eval_stop_decision(research_trace, knowledge_gaps)
     research_sufficient = score >= 0.6 or retry_count >= 1
     retry_count += 1
 

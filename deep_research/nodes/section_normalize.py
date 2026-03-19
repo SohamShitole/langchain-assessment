@@ -4,7 +4,7 @@ import json
 
 from langchain_openai import ChatOpenAI
 from langchain_core.runnables import RunnableConfig
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from deep_research.configuration import get_config
 from deep_research.prompts import SECTION_NORMALIZE_PROMPT, get_prompt
@@ -37,7 +37,7 @@ class SectionNormalizeOutput(BaseModel):
     items: list[SectionEvidenceItem] = Field(default_factory=list)
 
 
-def section_normalize(
+async def section_normalize(
     state: SectionWorkerState,
     config: RunnableConfig | None = None,
 ) -> dict:
@@ -75,10 +75,45 @@ def section_normalize(
     log_prompt("section_normalize", prompt, model=model_name)
 
     llm = ChatOpenAI(model=model_name, temperature=0)
-    structured = llm.with_structured_output(
-        SectionNormalizeOutput, method="function_calling"
-    )
-    result = structured.invoke([{"role": "user", "content": prompt}])
+    result = None
+    try:
+        structured = llm.with_structured_output(
+            SectionNormalizeOutput, method="function_calling"
+        )
+        result = await structured.ainvoke([{"role": "user", "content": prompt}])
+    except (ValidationError, Exception):
+        # Fallback when function_calling returns malformed data (e.g. some providers)
+        raw = await llm.ainvoke([{"role": "user", "content": prompt}])
+        text = raw.content if hasattr(raw, "content") else str(raw)
+        text = (text or "").strip()
+        if "```" in text:
+            for block in ("json", ""):
+                start = f"```{block}"
+                if start in text:
+                    i = text.find(start) + len(start)
+                    j = text.find("```", i)
+                    if j > i:
+                        text = text[i:j].strip()
+                        break
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError:
+            data = {}
+        raw_items = data.get("items") if isinstance(data, dict) else []
+        if not isinstance(raw_items, list):
+            raw_items = []
+        valid_items = []
+        for el in raw_items:
+            if not isinstance(el, dict):
+                continue
+            try:
+                valid_items.append(SectionEvidenceItem.model_validate(el))
+            except (ValidationError, Exception):
+                continue
+        result = SectionNormalizeOutput(items=valid_items)
+
+    if result is None:
+        result = SectionNormalizeOutput(items=[])
 
     url_to_raw: dict[str, str] = {
         (r.get("url") or ""): (r.get("raw_content") or r.get("content") or "")

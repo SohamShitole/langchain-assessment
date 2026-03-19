@@ -1,5 +1,6 @@
 """run_search node - execute search queries via Gensee, Tavily, or Exa."""
 
+import asyncio
 import json
 import os
 from urllib.error import HTTPError, URLError
@@ -66,13 +67,69 @@ def _gensee_deep_search(query: str, api_key: str) -> list[dict]:
     ]
 
 
+async def _gensee_search_async(query: str, api_key: str, max_results: int = 5, mode: str = "evidence") -> list[dict]:
+    """Async Gensee Search API via httpx."""
+    try:
+        import httpx
+    except ImportError:
+        return await asyncio.to_thread(_gensee_search, query, api_key, max_results, mode)
+    body = {
+        "query": query,
+        "max_results": max_results,
+        "mode": mode,
+        "timeout_seconds": 60,
+    }
+    try:
+        async with httpx.AsyncClient(timeout=90.0) as client:
+            resp = await client.post(
+                GENSEE_SEARCH_ENDPOINT,
+                json=body,
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+    except Exception:
+        return []
+    results = data.get("search_response") or []
+    return results if isinstance(results, list) else []
+
+
+async def _gensee_deep_search_async(query: str, api_key: str) -> list[dict]:
+    """Async Gensee Deep Search API via httpx."""
+    try:
+        import httpx
+    except ImportError:
+        return await asyncio.to_thread(_gensee_deep_search, query, api_key)
+    body = {"query": query, "timeout_seconds": 300}
+    try:
+        async with httpx.AsyncClient(timeout=360.0) as client:
+            resp = await client.post(
+                GENSEE_DEEP_SEARCH_ENDPOINT,
+                json=body,
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+    except Exception:
+        return []
+    references = (data.get("result") or {}).get("references") or []
+    return [
+        {"title": r.get("title", ""), "url": r.get("url", ""), "content": r.get("snippet", "")}
+        for r in references
+        if isinstance(r, dict)
+    ]
+
+
 def _tavily_search(
     query: str,
     max_results: int,
     search_depth: str = "advanced",
     include_raw_content: bool = True,
+    config: RunnableConfig | None = None,
 ) -> list[dict]:
-    """Call Tavily Search API. Returns results with content and optionally raw_content."""
+    """Call Tavily Search API. Returns results with content and optionally raw_content.
+    Pass config so the tool's LangSmith span uses the redacting client (avoids tracing raw data).
+    """
     try:
         from langchain_tavily import TavilySearch
     except ImportError:
@@ -84,7 +141,38 @@ def _tavily_search(
         include_raw_content=include_raw_content,
     )
     try:
-        resp = tool.invoke({"query": query})
+        if config is not None:
+            resp = tool.invoke({"query": query}, config=config)
+        else:
+            resp = tool.invoke({"query": query})
+    except Exception:
+        return []
+    return resp.get("results", []) if isinstance(resp, dict) else []
+
+
+async def _tavily_search_async(
+    query: str,
+    max_results: int,
+    search_depth: str = "advanced",
+    include_raw_content: bool = True,
+    config: RunnableConfig | None = None,
+) -> list[dict]:
+    """Async Tavily Search API."""
+    try:
+        from langchain_tavily import TavilySearch
+    except ImportError:
+        return []
+    tool = TavilySearch(
+        max_results=max_results,
+        topic="general",
+        search_depth=search_depth,
+        include_raw_content=include_raw_content,
+    )
+    try:
+        if config is not None:
+            resp = await tool.ainvoke({"query": query}, config=config)
+        else:
+            resp = await tool.ainvoke({"query": query})
     except Exception:
         return []
     return resp.get("results", []) if isinstance(resp, dict) else []
@@ -143,8 +231,54 @@ def _exa_search(
     return out
 
 
-def run_search(state: ResearchState, config: RunnableConfig | None = None) -> dict:
-    """Execute search queries via Gensee, Tavily, or Exa; append raw results, skip seen URLs."""
+async def _exa_search_async(
+    query: str,
+    max_results: int,
+    search_type: str = "auto",
+    max_chars: int = 20000,
+) -> list[dict]:
+    """Exa search run in thread to avoid blocking (exa-py is sync)."""
+    return await asyncio.to_thread(_exa_search, query, max_results, search_type, max_chars)
+
+
+async def _run_one_query_async(
+    q: str,
+    *,
+    use_gensee_deep: bool,
+    use_exa: bool,
+    use_tavily: bool,
+    use_gensee: bool,
+    gensee_key: str,
+    max_results: int,
+    search_depth: str,
+    include_raw_content: bool,
+    full_page_max_chars: int,
+    config: RunnableConfig | None,
+) -> list[dict]:
+    """Run a single search query with the configured provider (async)."""
+    if not q or not str(q).strip():
+        return []
+    try:
+        if use_gensee_deep:
+            return await _gensee_deep_search_async(q, gensee_key)
+        if use_exa:
+            return await _exa_search_async(q, max_results, search_type="auto", max_chars=full_page_max_chars)
+        if use_tavily:
+            return await _tavily_search_async(
+                q, max_results, search_depth=search_depth,
+                include_raw_content=include_raw_content, config=config,
+            )
+        if use_gensee:
+            return await _gensee_search_async(q, gensee_key, max_results=max_results, mode="evidence")
+    except Exception:
+        pass
+    return []
+
+
+async def run_search(state: ResearchState, config: RunnableConfig | None = None) -> dict:
+    """Execute search queries via Gensee, Tavily, or Exa; append raw results, skip seen URLs.
+    Queries are run in parallel with asyncio.gather.
+    """
     from dotenv import load_dotenv
     load_dotenv()
 
@@ -163,7 +297,6 @@ def run_search(state: ResearchState, config: RunnableConfig | None = None) -> di
     tavily_key = (os.environ.get("TAVILY_API_KEY") or "").strip()
     exa_key = (os.environ.get("EXA_API_KEY") or "").strip()
 
-    # Resolve provider: use config if key exists, else fallback exa -> tavily -> gensee
     use_gensee_deep = provider == "gensee_deep" and gensee_key
     use_exa = provider == "exa" and exa_key
     use_tavily = provider == "tavily" and tavily_key
@@ -183,30 +316,43 @@ def run_search(state: ResearchState, config: RunnableConfig | None = None) -> di
     elif gensee_key:
         use_gensee = True
     else:
+        return {
+            "raw_search_results": [],
+            "error_message": "Search API failed: No search provider configured or API key missing. Set GENSEE_API_KEY, TAVILY_API_KEY, or EXA_API_KEY.",
+        }
+
+    to_run = [q for q in queries[:max_queries] if q and str(q).strip()]
+    if not to_run:
         return {"raw_search_results": []}
 
-    new_results: list[dict] = []
+    tasks = [
+        _run_one_query_async(
+            q,
+            use_gensee_deep=use_gensee_deep,
+            use_exa=use_exa,
+            use_tavily=use_tavily,
+            use_gensee=use_gensee,
+            gensee_key=gensee_key,
+            max_results=max_results,
+            search_depth=search_depth,
+            include_raw_content=include_raw_content,
+            full_page_max_chars=full_page_max_chars,
+            config=config,
+        )
+        for q in to_run
+    ]
+    results_list = await asyncio.gather(*tasks, return_exceptions=True)
 
-    for q in queries[:max_queries]:
-        if not q or not str(q).strip():
-            continue
-        try:
-            if use_gensee_deep:
-                results = _gensee_deep_search(q, gensee_key)
-            elif use_exa:
-                results = _exa_search(q, max_results, search_type="auto", max_chars=full_page_max_chars)
-            elif use_tavily:
-                results = _tavily_search(
-                    q,
-                    max_results,
-                    search_depth=search_depth,
-                    include_raw_content=include_raw_content,
-                )
-            else:
-                results = _gensee_search(q, gensee_key, max_results=max_results, mode="evidence")
-        except Exception:
-            continue
-        for r in results:
+    # If any query failed (e.g. rate limit, insufficient credits), stop the flow
+    for q, res in zip(to_run, results_list):
+        if isinstance(res, Exception):
+            return {
+                "raw_search_results": [],
+                "error_message": f"Search API failed: {res!s}",
+            }
+    new_results: list[dict] = []
+    for q, res in zip(to_run, results_list):
+        for r in res:
             if not isinstance(r, dict):
                 continue
             url = r.get("url") or ""

@@ -1,11 +1,14 @@
 """merge_section_evidence node - combine section results with dedup and provenance."""
 
+from langchain_core.runnables import RunnableConfig
+
 from deep_research.research_logger import log_node_end, log_node_start
 from deep_research.state import ResearchState
 
 
-def merge_section_evidence(
+async def merge_section_evidence(
     state: ResearchState,
+    config: RunnableConfig | None = None,
 ) -> dict:
     """Merge section_results into merged_evidence with dedup and provenance."""
     log_node_start("merge_section_evidence")

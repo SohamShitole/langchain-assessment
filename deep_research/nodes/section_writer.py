@@ -5,6 +5,7 @@ Each call receives only that section's evidence with globally-consistent citatio
 indices, so the final assembly can concatenate without renumbering.
 """
 
+import asyncio
 import json
 
 from langchain_openai import ChatOpenAI
@@ -18,11 +19,13 @@ from deep_research.state import ResearchState
 _SNIPPET_CAP = 8000
 
 
-def write_sections(
+async def write_sections(
     state: ResearchState,
     config: RunnableConfig | None = None,
 ) -> dict:
-    """Write each report section independently with only its relevant evidence."""
+    """Write each report section independently with only its relevant evidence.
+    Section drafts are generated in parallel with asyncio.gather.
+    """
     log_node_start("write_sections", config)
 
     outline = state.get("report_outline") or []
@@ -50,9 +53,8 @@ def write_sections(
             section_evidence.setdefault(sid, []).append(e)
 
     llm = ChatOpenAI(model=model_name, temperature=0)
-    section_drafts: list[dict] = []
 
-    for section in outline:
+    async def write_one_section(section: dict) -> dict:
         sid = section.get("id", "")
         title = section.get("title", "")
         description = section.get("description", "")
@@ -83,19 +85,38 @@ def write_sections(
         )
 
         log_prompt(f"write_section_{sid}", prompt, model=model_name)
-        raw = llm.invoke([{"role": "user", "content": prompt}])
+        raw = await llm.ainvoke([{"role": "user", "content": prompt}])
         draft = raw.content if hasattr(raw, "content") else str(raw)
 
-        section_drafts.append({
+        return {
             "section_id": sid,
             "title": title,
             "draft": draft.strip(),
             "evidence_count": len(sec_ev),
-        })
+        }
+
+    section_drafts = await asyncio.gather(
+        *[write_one_section(section) for section in outline],
+        return_exceptions=True,
+    )
+
+    # Preserve order; replace exceptions with a placeholder draft
+    out: list[dict] = []
+    for i, section in enumerate(outline):
+        res = section_drafts[i] if i < len(section_drafts) else None
+        if isinstance(res, Exception):
+            out.append({
+                "section_id": section.get("id", ""),
+                "title": section.get("title", ""),
+                "draft": f"(Error writing section: {res})",
+                "evidence_count": 0,
+            })
+        elif isinstance(res, dict):
+            out.append(res)
 
     log_node_end("write_sections", {
-        "sections_written": len(section_drafts),
+        "sections_written": len(out),
         "total_evidence": len(evidence),
     })
 
-    return {"section_drafts": section_drafts}
+    return {"section_drafts": out}

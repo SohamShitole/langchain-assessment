@@ -14,7 +14,7 @@ from deep_research.research_logger import log_decision, log_node_end, log_node_s
 from deep_research.state import ResearchState
 
 
-def create_research_plan(
+async def create_research_plan(
     state: ResearchState,
     config: RunnableConfig | None = None,
 ) -> dict:
@@ -27,7 +27,7 @@ def create_research_plan(
     prompt = get_prompt("research_plan", cfg, RESEARCH_PLAN_PROMPT).format(query=query)
     log_prompt("create_research_plan", prompt, model=planner_model)
     llm = ChatOpenAI(model=planner_model, temperature=0)
-    raw = llm.invoke([{"role": "user", "content": prompt}])
+    raw = await llm.ainvoke([{"role": "user", "content": prompt}])
     text = raw.content if hasattr(raw, "content") else str(raw)
 
     text = text.strip()
@@ -74,7 +74,7 @@ def create_research_plan(
     }
 
 
-def plan_and_generate_queries(
+async def plan_and_generate_queries(
     state: ResearchState,
     config: RunnableConfig | None = None,
 ) -> dict:
@@ -97,7 +97,7 @@ def plan_and_generate_queries(
 
     if iteration == 0:
         prompt = get_prompt("planner_initial", cfg, PLANNER_INITIAL_PROMPT).format(query=query)
-        raw = llm.invoke([{"role": "user", "content": prompt}])
+        raw = await llm.ainvoke([{"role": "user", "content": prompt}])
         text = raw.content if hasattr(raw, "content") else str(raw)
     else:
         outline_str = json.dumps(outline, indent=2)
@@ -109,7 +109,7 @@ def plan_and_generate_queries(
             knowledge_gaps=gaps_str,
             seen_urls=", ".join(seen_list) if seen_list else "(none yet)",
         )
-        raw = llm.invoke([{"role": "user", "content": prompt}])
+        raw = await llm.ainvoke([{"role": "user", "content": prompt}])
         text = raw.content if hasattr(raw, "content") else str(raw)
 
     text = text.strip()

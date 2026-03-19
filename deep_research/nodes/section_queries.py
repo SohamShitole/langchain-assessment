@@ -11,7 +11,7 @@ from deep_research.research_logger import log_decision, log_node_end, log_node_s
 from deep_research.state import SectionWorkerState
 
 
-def generate_section_queries(
+async def generate_section_queries(
     state: SectionWorkerState,
     config: RunnableConfig | None = None,
 ) -> dict:
@@ -46,7 +46,7 @@ def generate_section_queries(
         )
 
     log_prompt("generate_section_queries", prompt, model=model_name)
-    raw = llm.invoke([{"role": "user", "content": prompt}])
+    raw = await llm.ainvoke([{"role": "user", "content": prompt}])
     text = raw.content if hasattr(raw, "content") else str(raw)
 
     text = text.strip()

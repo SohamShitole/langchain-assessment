@@ -1,20 +1,23 @@
 """section_search node - run search for one section's queries."""
 
+import asyncio
 import os
 
 from langchain_core.runnables import RunnableConfig
 
 from deep_research.configuration import get_config
-from deep_research.nodes.search import _exa_search, _gensee_deep_search, _gensee_search, _tavily_search
+from deep_research.nodes.search import _run_one_query_async
 from deep_research.research_logger import log_node_end, log_node_start
 from deep_research.state import SectionWorkerState
 
 
-def section_search(
+async def section_search(
     state: SectionWorkerState,
     config: RunnableConfig | None = None,
 ) -> dict:
-    """Execute search for section-specific queries, skip global_seen_urls."""
+    """Execute search for section-specific queries, skip global_seen_urls.
+    Queries are run in parallel with asyncio.gather.
+    """
     from dotenv import load_dotenv
 
     load_dotenv()
@@ -24,7 +27,6 @@ def section_search(
 
     queries = state.get("section_queries") or []
     global_seen = state.get("global_seen_urls") or set()
-    section_id = (state.get("section_task") or {}).get("id", "")
 
     cfg = get_config(config)
     max_queries = cfg.get("section_queries_per_iteration") or 3
@@ -57,33 +59,48 @@ def section_search(
     elif gensee_key:
         use_gensee = True
     else:
+        return {
+            "section_raw_results": [],
+            "section_seen_urls": set(),
+            "error_message": "Search API failed: No search provider configured or API key missing. Set GENSEE_API_KEY, TAVILY_API_KEY, or EXA_API_KEY.",
+        }
+
+    to_run = [q for q in queries[:max_queries] if q and str(q).strip()]
+    if not to_run:
+        log_node_end("section_search", {"queries_run": 0, "results_count": 0, "new_urls": 0})
         return {"section_raw_results": [], "section_seen_urls": set()}
 
+    tasks = [
+        _run_one_query_async(
+            q,
+            use_gensee_deep=use_gensee_deep,
+            use_exa=use_exa,
+            use_tavily=use_tavily,
+            use_gensee=use_gensee,
+            gensee_key=gensee_key,
+            max_results=max_results,
+            search_depth=search_depth,
+            include_raw_content=include_raw_content,
+            full_page_max_chars=full_page_max_chars,
+            config=config,
+        )
+        for q in to_run
+    ]
+    results_list = await asyncio.gather(*tasks, return_exceptions=True)
+
+    # If any query failed (e.g. rate limit, insufficient credits), stop the flow
+    for q, res in zip(to_run, results_list):
+        if isinstance(res, Exception):
+            log_node_end("section_search", {"error": str(res)})
+            return {
+                "section_raw_results": [],
+                "section_seen_urls": set(),
+                "error_message": f"Search API failed: {res!s}",
+            }
     new_results: list[dict] = []
     new_seen: set[str] = set()
-
-    for q in queries[:max_queries]:
-        if not q or not str(q).strip():
-            continue
-        try:
-            if use_gensee_deep:
-                results = _gensee_deep_search(q, gensee_key)
-            elif use_exa:
-                results = _exa_search(q, max_results, search_type="auto", max_chars=full_page_max_chars)
-            elif use_tavily:
-                results = _tavily_search(
-                    q,
-                    max_results,
-                    search_depth=search_depth,
-                    include_raw_content=include_raw_content,
-                )
-            else:
-                results = _gensee_search(
-                    q, gensee_key, max_results=max_results, mode="evidence"
-                )
-        except Exception:
-            continue
-        for r in results:
+    for q, res in zip(to_run, results_list):
+        for r in res:
             if not isinstance(r, dict):
                 continue
             url = r.get("url") or ""

@@ -19,6 +19,7 @@ from langchain_openai import ChatOpenAI
 
 from deep_research.configuration import get_config, load_config_file
 from deep_research.graph import create_research_graph
+from deep_research.langsmith_redact import redact_raw_content_in_payload
 from deep_research.progress import display_plan, print_progress, print_section_count
 from deep_research.research_logger import close_log, init_log
 
@@ -33,7 +34,12 @@ except ImportError:
     Command = None
 
 
-def replan_with_feedback(
+def _json_safe(obj):
+    """Return a JSON-serializable copy (avoids 400 from API when payload has Pydantic/datetime etc.)."""
+    return json.loads(json.dumps(obj, default=str))
+
+
+async def replan_with_feedback(
     query: str,
     feedback: str,
     current_plan: dict,
@@ -44,16 +50,18 @@ def replan_with_feedback(
     The LLM interprets the feedback in context and returns an updated plan (state update dict)."""
     from deep_research.prompts import RESEARCH_PLAN_EDIT_PROMPT, get_prompt
 
+    current_plan = _json_safe(current_plan or {})
+    config = _json_safe(config or {})
     cfg = get_config(config)
     template = get_prompt("research_plan_edit", cfg, RESEARCH_PLAN_EDIT_PROMPT)
-    current_plan_str = json.dumps(current_plan, indent=2)
+    current_plan_str = json.dumps(current_plan, indent=2, default=str)
     prompt = template.format(
         query=query,
         current_plan=current_plan_str,
         feedback=feedback,
     )
     llm = ChatOpenAI(model=planner_model, temperature=0)
-    raw = llm.invoke([{"role": "user", "content": prompt}])
+    raw = await llm.ainvoke([{"role": "user", "content": prompt}])
     text = raw.content if hasattr(raw, "content") else str(raw)
     text = text.strip()
     if "```" in text:
@@ -95,7 +103,8 @@ def replan_with_feedback(
     }
 
 
-def main() -> None:
+async def async_main() -> None:
+    """Async entry: parse args, build graph, run with ainvoke/astream, write outputs, run evals."""
     parser = argparse.ArgumentParser(
         description="Run the deep research agent on a query."
     )
@@ -148,7 +157,14 @@ def main() -> None:
     parser.add_argument(
         "--eval",
         action="store_true",
-        help="Run evals after report generation",
+        default=True,
+        help="Run evals after report generation (default: on)",
+    )
+    parser.add_argument(
+        "--no-eval",
+        dest="eval",
+        action="store_false",
+        help="Skip evals after report generation",
     )
     parser.add_argument(
         "--trace",
@@ -168,7 +184,14 @@ def main() -> None:
     parser.add_argument(
         "--langsmith",
         action="store_true",
-        help="Enable LangSmith tracing for this run",
+        default=True,
+        help="Enable LangSmith tracing for this run (default: on)",
+    )
+    parser.add_argument(
+        "--no-langsmith",
+        dest="langsmith",
+        action="store_false",
+        help="Disable LangSmith tracing",
     )
     parser.add_argument(
         "--langsmith-light",
@@ -242,6 +265,19 @@ def main() -> None:
         os.environ["LANGSMITH_HIDE_INPUTS"] = "true"
         os.environ["LANGSMITH_HIDE_OUTPUTS"] = "true"
         print("LangSmith lightweight tracing (inputs/outputs hidden to avoid size limit)")
+    elif args.langsmith:
+        # Redact only raw fetched content (snippet, raw_content) so trace stays under ~20MB
+        # while keeping full structure (section_results, URLs, titles, etc.) in the trace.
+        try:
+            from langsmith import Client
+            redacting_client = Client(
+                hide_inputs=lambda inputs: redact_raw_content_in_payload(inputs),
+                hide_outputs=lambda outputs: redact_raw_content_in_payload(outputs),
+            )
+            run_config["langsmith_extra"] = {"client": redacting_client}
+            print("LangSmith tracing (snippet/raw_content redacted to stay under size limit)")
+        except Exception as e:
+            print(f"LangSmith redacting client not available: {e}", file=sys.stderr)
 
     # Build graph: with checkpointer for streaming + optional interrupt for plan approval
     checkpointer = MemorySaver() if MemorySaver else None
@@ -252,11 +288,11 @@ def main() -> None:
 
     try:
         if not checkpointer:
-            # No checkpointer: fall back to invoke (no progress, no plan approval)
-            final = graph.invoke(initial_state, config=run_config)
+            # No checkpointer: run with ainvoke (no progress, no plan approval)
+            final = await graph.ainvoke(initial_state, config=run_config)
         else:
-            # Phase 1: stream until end or interrupt
-            for chunk in graph.stream(
+            # Phase 1: stream until end or interrupt (async)
+            async for chunk in graph.astream(
                 initial_state,
                 config=run_config,
                 stream_mode="updates",
@@ -294,7 +330,7 @@ def main() -> None:
                         current = state_snapshot.values or {}
                         planner_model = current.get("planner_model") or "gpt-4o-mini"
                         current_plan = current.get("research_plan") or {}
-                        update = replan_with_feedback(
+                        update = await replan_with_feedback(
                             query,
                             feedback,
                             current_plan,
@@ -308,9 +344,9 @@ def main() -> None:
                     # Unrecognized: prompt again
                     print("Please enter Y (proceed), Edit, or Cancel.", file=sys.stderr)
 
-                # Resume graph from interrupt
+                # Resume graph from interrupt (async)
                 resume_cmd = Command(resume=True) if Command else True
-                for chunk in graph.stream(
+                async for chunk in graph.astream(
                     resume_cmd,
                     config=run_config,
                     stream_mode="updates",
@@ -322,10 +358,20 @@ def main() -> None:
                                 print_section_count(len(section_tasks))
                         print_progress(node_name, data if isinstance(data, dict) else {})
 
-            final = graph.get_state(run_config).values
+                final = graph.get_state(run_config).values
+            else:
+                # Stream completed without interrupt
+                final = graph.get_state(run_config).values
     finally:
         if log_path:
             close_log()
+
+    final = final or {}
+    error_message = final.get("error_message") or ""
+    if error_message:
+        print("Search API failed. Stopping.", file=sys.stderr)
+        print(error_message, file=sys.stderr)
+        sys.exit(1)
 
     messages = final.get("messages") or []
     if messages:
@@ -383,9 +429,21 @@ def main() -> None:
             json.dump(trace, f, indent=2, default=str)
         print(f"Trace saved to {trace_path}")
 
+    # Offline evidence file when LangSmith is enabled (for local inspection without LangSmith)
+    if args.langsmith or args.langsmith_light:
+        evidence_path = output_path.replace(".md", "_evidence.json")
+        evidence_data = {
+            "writer_evidence_subset": final.get("writer_evidence_subset") or [],
+            "merged_evidence": final.get("merged_evidence") or [],
+            "section_results": final.get("section_results") or [],
+        }
+        with open(evidence_path, "w", encoding="utf-8") as f:
+            json.dump(evidence_data, f, indent=2, default=str)
+        print(f"Evidence saved to {evidence_path}")
+
     if args.eval:
         from deep_research.evals import async_run_evals
-        evals = asyncio.run(async_run_evals(
+        evals = await async_run_evals(
             report_markdown=report,
             report_outline=final.get("report_outline") or [],
             writer_evidence=final.get("writer_evidence_subset") or [],
@@ -393,7 +451,7 @@ def main() -> None:
             section_results=final.get("section_results"),
             research_trace=trace,
             query=query,
-        ))
+        )
         print("\n[Evals]")
         evals_for_json = {}
         for name, result in evals.items():
@@ -415,6 +473,11 @@ def main() -> None:
         print(f"Evals saved to {evals_path}")
 
     print(report)
+
+
+def main() -> None:
+    """Sync entry point: run async_main in the event loop."""
+    asyncio.run(async_main())
 
 
 if __name__ == "__main__":

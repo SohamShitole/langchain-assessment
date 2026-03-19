@@ -35,7 +35,7 @@ class SectionCoverageOutput(BaseModel):
         return data
 
 
-def section_assess_coverage(
+async def section_assess_coverage(
     state: SectionWorkerState,
     config: RunnableConfig | None = None,
 ) -> dict:
@@ -69,7 +69,7 @@ def section_assess_coverage(
     structured = llm.with_structured_output(
         SectionCoverageOutput, method="function_calling"
     )
-    result = structured.invoke([{"role": "user", "content": prompt}])
+    result = await structured.ainvoke([{"role": "user", "content": prompt}])
 
     gaps = [
         {"description": g.description, "critical": g.critical}

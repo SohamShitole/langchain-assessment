@@ -1,5 +1,7 @@
 """Focused tests for the deep research graph."""
 
+import asyncio
+
 import pytest
 
 from deep_research.graph import create_research_graph, create_research_graph_phase1
@@ -80,7 +82,7 @@ def test_merge_dedup():
             },
         ],
     }
-    out = merge_section_evidence(state)
+    out = asyncio.run(merge_section_evidence(state))
     merged = out["merged_evidence"]
     urls = [m["url"] for m in merged]
     assert "https://a.com" in urls

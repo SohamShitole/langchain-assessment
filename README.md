@@ -105,6 +105,17 @@ python run.py "Your query" --auto
 - `--log path/to/file.log` write logs to a specific file
 - `-o, --output PATH` choose the output directory
 
+## Web UI (Gradio)
+
+A simple browser UI is provided with Gradio. Install dependencies (including `gradio`), then run:
+
+```bash
+pip install -r requirements.txt
+python gradio_app.py
+```
+
+Open the URL shown (default `http://127.0.0.1:7860`), enter a research query, and click **Run research**. After the research plan is created, the graph pauses for approval: you can **Proceed**, **Edit** (with feedback), or **Cancel**—same as the CLI. Progress streams live; the report and optional evals appear when the run finishes. Reports can be saved to an output directory (default `output/`).
+
 ## Visualize in LangSmith Studio
 
 You can run the research graph locally and visualize it in [LangSmith Studio](https://docs.langchain.com/langsmith/quick-start-studio) (for [deployed graphs](https://docs.langchain.com/langsmith/quick-start-studio#deployed-graphs) or the local dev server).

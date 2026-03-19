@@ -12,7 +12,7 @@ from deep_research.research_logger import log_decision, log_node_end, log_node_s
 from deep_research.state import ResearchState
 
 
-def decompose_into_sections(
+async def decompose_into_sections(
     state: ResearchState,
     config: RunnableConfig | None = None,
 ) -> dict:
@@ -27,7 +27,7 @@ def decompose_into_sections(
     log_prompt("decompose_into_sections", prompt, model=model_name)
 
     llm = ChatOpenAI(model=model_name, temperature=0)
-    raw = llm.invoke([{"role": "user", "content": prompt}])
+    raw = await llm.ainvoke([{"role": "user", "content": prompt}])
     text = raw.content if hasattr(raw, "content") else str(raw)
 
     text = text.strip()

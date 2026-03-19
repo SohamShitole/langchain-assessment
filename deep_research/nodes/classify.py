@@ -18,7 +18,7 @@ class ClassifyOutput(BaseModel):
     reasoning: str = Field(description="Short explanation")
 
 
-def classify_complexity(
+async def classify_complexity(
     state: ResearchState,
     config: RunnableConfig | None = None,
 ) -> dict:
@@ -32,7 +32,7 @@ def classify_complexity(
     log_prompt("classify_complexity", query, model=model_name, system_content=classify_prompt)
     llm = ChatOpenAI(model=model_name, temperature=0)
     structured = llm.with_structured_output(ClassifyOutput, method="function_calling")
-    result = structured.invoke(
+    result = await structured.ainvoke(
         [{"role": "system", "content": classify_prompt}, {"role": "user", "content": query}]
     )
 

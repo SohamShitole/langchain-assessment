@@ -45,7 +45,7 @@ def _format_conflict_resolutions(global_conflicts: list[dict]) -> str:
     return "\n\n".join(lines) if lines else "None."
 
 
-def write_report(state: ResearchState, config: RunnableConfig | None = None) -> dict:
+async def write_report(state: ResearchState, config: RunnableConfig | None = None) -> dict:
     """Generate final markdown report.
 
     Three modes (checked in order):
@@ -137,7 +137,7 @@ def write_report(state: ResearchState, config: RunnableConfig | None = None) -> 
 
     log_prompt("write_report", prompt, model=model_name)
     llm = ChatOpenAI(model=model_name, temperature=0)
-    raw = llm.invoke([{"role": "user", "content": prompt}])
+    raw = await llm.ainvoke([{"role": "user", "content": prompt}])
     report = raw.content if hasattr(raw, "content") else str(raw)
     report = report.strip()
     if report.startswith("```"):

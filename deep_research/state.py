@@ -59,6 +59,9 @@ class ResearchState(TypedDict, total=False):
     research_sufficient: bool
     research_retry_count: int
 
+    # Search API failure: when set, flow stops and UI shows this message
+    error_message: Annotated[str, _keep_first]
+
 
 class SectionWorkerState(TypedDict, total=False):
     """State for the section worker subgraph."""
@@ -77,3 +80,4 @@ class SectionWorkerState(TypedDict, total=False):
     section_results: list[dict]  # Output for parent: [{section_id, evidence, ...}]
     global_seen_urls: set[str]
     section_seen_urls: Annotated[set[str], _merge_sets]
+    error_message: str  # Search API failure; stops section worker and propagates to parent
