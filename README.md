@@ -98,6 +98,7 @@ python run.py "Your query" --auto
 - `--max-iterations N` override both the top-level and section iteration budget
 - `--search-depth {basic,advanced}` set search depth where supported
 - `--extract-depth {basic,advanced}` control page enrichment depth
+- `--research-mode {basic,advanced}` merge `config_research_{mode}.yaml` over `config.yaml`
 - `--auto` skip interactive plan approval
 - `--eval` run the evaluation suite after report generation
 - `--trace` save a research trace JSON file next to the report
@@ -114,7 +115,7 @@ pip install -r requirements.txt
 python gradio_app.py
 ```
 
-Open the URL shown (default `http://127.0.0.1:7860`), enter a research query, and click **Run research**. After the research plan is created, the graph pauses for approval: you can **Proceed**, **Edit** (with feedback), or **Cancel**—same as the CLI. Progress streams live; the report and optional evals appear when the run finishes. Reports can be saved to an output directory (default `output/`).
+Open the URL shown (default `http://127.0.0.1:7860`), enter a research query, pick **Basic** or **Advanced** research depth (see presets below), and click **Run Deep Research**. After the research plan is created, the graph pauses for approval: you can **Proceed**, **Edit** (with feedback), or **Cancel**—same as the CLI. Progress streams live; the report and optional evals appear when the run finishes. Reports can be saved to an output directory (default `output/`).
 
 ## Visualize in LangSmith Studio
 
@@ -236,6 +237,7 @@ The main tuning surface is `config.yaml`. It lets you control:
 - max iterations and queries per iteration
 - writer context size
 - full-page enrichment
+- SQLite TTL caching for search and extraction
 - section-worker settings
 - conflict-resolution behavior
 - model choices
@@ -246,6 +248,7 @@ Example config areas:
 
 - `search`
 - `extract`
+- `cache`
 - `models`
 - `writer`
 - `section`
@@ -253,7 +256,29 @@ Example config areas:
 - `report`
 - `prompts`
 
-CLI arguments override values loaded from `config.yaml`.
+CLI arguments override values loaded from `config.yaml` (after any research preset merge).
+
+### Research depth presets (Basic / Advanced)
+
+Place these next to your `config.yaml` (same folder). They **shallow-merge** over the base file for `search`, `extract`, `section`, and `conflict` only—everything else (models, cache, `report`, `writer`, `prompts`, etc.) stays in `config.yaml`.
+
+| File | Purpose |
+|------|---------|
+| `config_research_basic.yaml` | Fewer iterations/queries (faster, cheaper) |
+| `config_research_advanced.yaml` | Deeper search and section loops |
+
+- **Gradio:** use the **Mode** radio (Basic / Advanced).
+- **CLI:** `python run.py '...' --research-mode basic` or `--research-mode advanced`.
+
+Cache keys in `config.yaml`:
+- `cache.enabled`
+- `cache.db_path`
+- `cache.search_ttl_seconds`
+- `cache.full_page_ttl_seconds`
+- `cache.log` — when true, emit **summary** lines like `[cache] search batch: queries=5 hits=3 misses=2 stores=2` (requires logging configured, e.g. CLI / Gradio).
+- `cache.log_verbose` — when true, log each HIT/MISS/STORE (very chatty).
+
+With `python run.py ... --log`, the same stats are also written under `[CACHE]` in the process log file.
 
 ### Programmatic usage
 

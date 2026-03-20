@@ -10,18 +10,20 @@ At a high level, this repository is a CLI-first research agent that takes a user
 
 The important pieces are:
 
-- `run.py` is the entry point. It loads config, runs the graph, streams progress, handles plan approval, writes the report, optionally writes logs and traces, and can run evals.
+- `run.py` is the primary CLI entry point. It loads config (with optional research-mode overlay), runs the graph, streams progress, handles plan approval, writes the report, optionally writes logs and traces, and can run evals.
+- `gradio_app.py` is an optional web UI that drives the same graph (progress, plan approval, report download, evals).
 - `deep_research/graph.py` defines the main LangGraph workflow. The default path is the newer section-oriented flow. The older single-agent loop is still there as a legacy path.
 - `deep_research/section_graph.py` defines the small worker graph used for section-level research.
 - `deep_research/nodes/` contains the actual behavior: ingest, classify, planning, search, normalization, coverage checks, merge, conflict handling, writer-context prep, section drafting, report writing, and finalization.
-- `deep_research/configuration.py` turns `config.yaml` into runtime settings and provides defaults; it also loads report structure from presets or an explicit list.
+- `deep_research/configuration.py` turns `config.yaml` into runtime settings and provides defaults; it also loads report structure from presets or an explicit list. For `--research-mode basic` or `advanced`, it merges `config_research_basic.yaml` or `config_research_advanced.yaml` over the base file (shallow per-section overrides) so depth/cost knobs can vary without duplicating the whole config.
+- `deep_research/cache.py` implements the SQLite TTL cache for search responses and full-page extraction; toggles and paths live under `cache:` in config.
 - `report_presets.yaml` defines numbered report layouts (e.g. Standard, Brief, Academic, OpenAI-style, Consulting); config can reference a preset by number instead of listing sections.
 - `deep_research/prompts.py` holds the system prompts, with support for overriding them from config.
 - `deep_research/progress.py` is the small UX layer that turns graph events into human-readable progress messages.
 - `deep_research/research_logger.py` writes process logs for debugging.
 - `deep_research/evals/` contains the post-run evaluation suite.
 - `reports/` stores generated reports, optional logs, and optional trace JSON files.
-- `tests/` contains mostly graph and routing smoke tests, plus a few end-to-end checks.
+- `tests/` contains graph and routing tests (`test_graph.py`), plus cache integration tests (`test_cache_integration.py`).
 
 So this is not just "an agent prompt." It is a graph-based research system with state, routing, logging, and evaluation around it.
 
@@ -314,9 +316,7 @@ The intended routing strategy is straightforward:
 
 This is the right design choice for cost and latency. Not every step deserves the strongest model.
 
-One honest caveat from the current code: the model-routing idea is better than the current implementation details. In `config.yaml`, the planner keys are named `planner` and `planner_strong`, but `deep_research/configuration.py` currently reads `planner_simple` and `planner_complex`. That means planner overrides in config are not fully aligned with the loader right now.
-
-So the architecture is correct, but one part of the configuration plumbing still needs cleanup.
+**Update (current tree):** `config.yaml` under `models:` uses **`planner_simple`** and **`planner_complex`**, which match `_YAML_TO_FLAT` in `deep_research/configuration.py` (they map to `planner_simple_model` / `planner_complex_model` for `get_config()`). The older mismatch (`planner` / `planner_strong` in YAML vs `planner_simple` / `planner_complex` in code) has been **resolved**; if you still see those old key names in a fork or external preset, add aliases in `_YAML_TO_FLAT` or rename the YAML keys.
 
 ---
 
@@ -409,12 +409,12 @@ We briefly had a node `evaluate_section_drafts` between `write_sections` and `wr
 We still wanted to know **which** sections were weak, not just an overall section-completeness score. Options were: (a) a graph node that runs after section drafts and stores per-section scores in state, (b) run section completeness once in `run.py` but ask the judge for **structured output** (overall score + a list of section_id, score, reason per section). We chose (b). The section_completeness eval now returns a 3-tuple: (overall_score, reasoning, section_scores). The evals JSON and the CLI both include this breakdown. So we get per-section visibility where we already run evals, without adding graph nodes or state.
 
 **Decision 4: Async evals in the CLI.**  
-The 10 monitoring evals in `run.py` are independent LLM-as-judge calls. Running them sequentially was slow. We added async versions of each eval and an `async_run_evals` that uses `asyncio.gather` so all 10 run concurrently. The CLI calls `asyncio.run(async_run_evals(...))` when `--eval` is set. Same outputs, less wall-clock time.
+The 10 monitoring evals in `run.py` are independent LLM-as-judge calls. Running them sequentially was slow. We added async versions of each eval and an `async_run_evals` that uses `asyncio.gather` so all 10 run concurrently. The CLI runs them by default; use `--no-eval` to skip. Same outputs, less wall-clock time.
 
 ### What we actually implemented
 
 - **Inside the graph:** A single node `eval_stop_gate` (in `deep_research/nodes/conflicts.py`) that runs `eval_stop_decision(research_trace, knowledge_gaps)`, writes `stop_eval_score`, `research_sufficient`, and `research_retry_count` to state, and is used by `stop_eval_route` to decide between "conflict_resolution_research" and "prepare_writer_context". No other evals run inside the graph.
-- **In run.py:** All 10 evals run via `async_run_evals` when `--eval` is passed. Results are printed and written to `*_evals.json`. Section completeness now returns and stores an overall score plus `section_scores` (list of per-section score and reason), so we track each section's completeness in the same file.
+- **In run.py:** All 10 evals run via `async_run_evals` unless `--no-eval` is passed. Results are printed and written to `*_evals.json`. Section completeness now returns and stores an overall score plus `section_scores` (list of per-section score and reason), so we track each section's completeness in the same file.
 - **No extra graph nodes for monitoring.** Section completeness is not a node; it is just one of the 10 evals with a richer return shape.
 
 ### Tradeoffs we considered
@@ -424,12 +424,12 @@ The 10 monitoring evals in `run.py` are independent LLM-as-judge calls. Running 
 | Decision gate: one vs many | One (stop decision only) | Cost and complexity. One gate gives most of the benefit (avoid writing when research was clearly insufficient) without turning the graph into a maze of eval-driven branches. |
 | Section completeness: graph node vs CLI only | CLI only | It was monitoring only; nothing in the graph consumed the score. Keeping it with the other evals avoids an extra node and keeps all post-run metrics in one place. |
 | Per-section scores: node + state vs structured eval output | Structured eval output | We wanted per-section visibility without polluting state or adding a node. Extending the section_completeness judge to return a list of (section_id, score, reason) gave us that in the existing evals JSON and CLI. |
-| Eval run location: always in graph vs opt-in in CLI | Gate in graph, monitoring in CLI | The gate must be in the graph to affect routing. Monitoring evals are optional (--eval) and expensive; running them only when requested keeps default runs fast and keeps the graph simpler. |
+| Eval run location: always in graph vs opt-in in CLI | Gate in graph, monitoring in CLI | The gate must be in the graph to affect routing. Monitoring evals run by default after the report; `--no-eval` skips them to save cost/latency. |
 
 ### Summary of the eval restructure
 
 - **One decision gate in the graph:** `eval_stop_gate` uses stop-decision quality to decide whether to do one more research pass or proceed to writing.
-- **All other evals stay in the CLI:** Run asynchronously when `--eval` is set; same JSON and console output as before.
+- **All other evals stay in the CLI:** Run asynchronously after the report unless `--no-eval`; same JSON and console output as before.
 - **Section completeness:** Still one of those 10 evals, but now returns (and we store) an overall score plus per-section scores and reasons, so we can see which sections were weak without adding graph nodes or state.
 
 ---
@@ -472,7 +472,7 @@ So the summary was grounded in at most ~5k characters of evidence per section, e
 
 ### What we implemented
 
-- **Configuration:** `section.summary_top_n` (default 25), `section.summary_snippet_chars` (default 1200), and optional `section.summary_evidence_max_chars` (default 0). All read from `config.yaml` via `configuration.py`.
+- **Configuration:** `section.summary_top_n`, `section.summary_snippet_chars`, and optional `section.summary_evidence_max_chars` (default 0). `configuration.py` defaults are **25** / **1200** / **0** when keys are omitted; the bundled `config.yaml` (and research-mode overlays) may set lower `summary_top_n` (e.g. 5) for cost. All values are read via `get_config()`.
 - **Section summary node:** Builds the evidence string for the summary prompt in one of two ways: (1) **Budget mode** (`summary_evidence_max_chars` &gt; 0): fill with full snippets until the budget, then truncate only the last one if necessary. (2) **Top-N mode** (otherwise): take the top `summary_top_n` items and cap each snippet at `summary_snippet_chars`. The rest of the node (prompt, JSON parsing, section_result shape) is unchanged.
 - **No change to writer or merge.** The writer still receives section_summaries and evidence as before; we only improved what goes **into** the summary.
 
@@ -488,7 +488,7 @@ So the summary was grounded in at most ~5k characters of evidence per section, e
 |----------|--------|-----|
 | Hardcoded vs configurable | Configurable | Lets us tune and A/B test without code changes; different environments can use different limits. |
 | One mode vs two (top-N vs budget) | Two modes | Top-N + snippet cap is simple and predictable; budget mode answers “I want full evidence” without hardcoding a huge top-N. |
-| Defaults: conservative vs aggressive | Moderately aggressive (25, 1200) | Old 10×500 was too weak; 25×1200 improves quality for typical runs. We could lower defaults later if cost becomes an issue. |
+| Defaults: conservative vs aggressive | Code defaults 25×1200; repo config may override (e.g. top-N 5) | Old 10×500 was too weak; 25×1200 in code improves quality when no YAML override. Shipped YAML can tune down top-N for cheaper runs. |
 | Budget mode: truncate last snippet vs drop last item | Truncate last snippet | Fits as many **items** as possible within the budget, then truncate only the final snippet so we don’t lose a whole source. |
 | Where to document | DESIGN.md + config comments | So the next person understands why the knobs exist and what “section shallowness” referred to. |
 
@@ -502,9 +502,9 @@ Section summaries used to be shallow because they only saw a small, truncated sl
 
 The broad architecture is solid, but a few details are still rough.
 
-- `config.yaml` and `configuration.py` are not fully aligned for planner model names, so some planner config overrides likely do not work as intended.
-- `dispatch_sections()` currently hardcodes `6` parallel sections instead of using the configurable parallelism setting.
-- Section summaries have been improved: the summary node now gets configurable evidence (default 25 items × 1200 chars per snippet) and an optional full-evidence character budget via `section.summary_evidence_max_chars`. Summary quality is less capped than before; further gains would require e.g. multi-pass summarization or chunked evidence.
+- **Planner model keys:** Aligned — see note above (`planner_simple` / `planner_complex` in YAML ↔ loader).
+- **`dispatch_sections()`** uses **`max_parallel_sections`** from config (`section.max_parallel` in YAML via `_YAML_TO_FLAT`), not a hardcoded fan-out count; the literal `6` appears only as a **fallback default** in code if config omits the value.
+- **Section summaries:** The summary node supports **top-N × per-snippet cap** (defaults `section_summary_top_n` / `section_summary_snippet_chars`) and an optional **character-budget mode** when `section.summary_evidence_max_chars` &gt; 0 so more full snippet text can flow into the prompt up to that budget. “Full corpus in one prompt” is still impractical; further gains would be multi-pass or chunked summarization.
 - Conflict resolution has been deepened: adjudication now receives original evidence plus metadata (credibility, source_type) and disambiguation search results; the writer receives explicit conflict_resolutions (winning_claim, resolution_verdict) so the report can prefer winning claims and surface caveats. It can be taken further (e.g. iterative resolution, downgrading losing evidence).
 - Deduplication is mostly URL-string-based. That helps, but it is not the same as canonicalization or semantic duplicate detection.
 - The README still describes the project mostly as a simpler single-agent workflow, while the actual default runtime is now the section-oriented Phase 2 path.
@@ -536,8 +536,7 @@ Beyond that, the most useful next improvements would probably be:
 - stronger section-summary grounding
 - config cleanup
 - richer source filtering
-- caching
-- stronger regression-style evaluation
+- stronger regression-style evaluation (cache layer for search/pages is already in place; tuning and broader test coverage remain)
 
 ---
 
@@ -545,11 +544,11 @@ Beyond that, the most useful next improvements would probably be:
 
 ### Priority 2 — High-Impact Improvements
 
-**5. Caching Layer**
+**5. Caching Layer** *(implemented; extension ideas remain)*
 
-- **What:** Cache search results by query hash + provider. Across runs, the same sub-queries often recur (especially for follow-up research).
-- **Why:** Saves API cost and latency. Also enables offline debugging of the pipeline without burning credits.
-- **How:** Simple shelve / sqlite cache keyed on `(provider, query_hash, search_depth)` with TTL-based expiry.
+- **What:** SQLite-backed TTL cache for search responses and full-page extraction (`deep_research/cache.py`, `cache:` in `config.yaml`).
+- **Why:** Saves API cost and latency; helps offline-ish debugging when hits replay.
+- **Possible next steps:** Broader key dimensions, warming, or export of cache stats for ops.
 
 **6. Semantic Deduplication**
 
@@ -571,20 +570,31 @@ Beyond that, the most useful next improvements would probably be:
 - **What:** Use 2+ search providers per query and merge results (reciprocal rank fusion or similar). Different providers have different coverage biases.
 - **Why:** Significantly improves recall and reduces provider-specific blind spots.
 
-**10. Stronger Test Coverage**
+**10. Dynamic Section Depth**
 
-Currently there's only 1 test file (`test_graph.py`, 239 lines). Add:
+- **What:** Allocate iteration budget per section by difficulty instead of a fixed cap for all. Simple sections stop earlier; “hard” sections (low coverage scores, detected gaps, or local conflicts) receive more search–normalize–assess loops or queries before summarizing.
+- **Why:** Saves cost and latency on easy sections while pushing depth where evidence is thin—better ROI than uniform max iterations everywhere.
+
+**11. Golden-Query Regression Suite**
+
+- **What:** A small, fixed set of benchmark queries checked in CI: run the graph (or replay saved artifacts), run evals, and assert scores stay above thresholds or compare reports/eval JSON to stored baselines (allowlisted drift).
+- **Why:** Catches regressions in routing, prompts, or provider behavior that unit tests miss; fits how LLM workflows are usually gated in practice.
+
+**12. Stronger Test Coverage**
+
+There is graph/routing coverage in `tests/test_graph.py` plus `tests/test_cache_integration.py` for the cache. Still add:
 
 - Unit tests per node — test each node function in isolation with mocked LLM calls
-- Eval regression tests — golden report + eval scores checked against thresholds
 - Config validation tests — ensure all config paths produce valid Configuration objects
 - Edge case tests — empty search results, LLM refusals, malformed JSON responses
+
+*(Golden-query / eval-threshold CI is called out explicitly in **11**.)*
 
 ### Priority 3 — If You Had More Time (Stretch Goals)
 
 These are features that would make this genuinely competitive with commercial deep research tools.
 
-**11. Persistent Vector Store for Evidence**
+**13. Persistent Vector Store for Evidence**
 
 Store all evidence across runs in a vector DB (ChromaDB, Qdrant, or pgvector). Enable:
 
@@ -592,7 +602,7 @@ Store all evidence across runs in a vector DB (ChromaDB, Qdrant, or pgvector). E
 - Cross-run knowledge accumulation
 - Semantic retrieval of past evidence for new queries
 
-**12. Multi-Modal Sources**
+**14. Multi-Modal Sources**
 
 Add support for:
 
@@ -601,7 +611,7 @@ Add support for:
 - GitHub code search — for technical topics
 - ArXiv API — first-class academic source
 
-**13. Interactive Report Editing**
+**15. Interactive Report Editing**
 
 After the report is generated, let the user interactively:
 
@@ -611,7 +621,7 @@ After the report is generated, let the user interactively:
 
 This is essentially Phase 3 (deeper HITL) from your roadmap.
 
-**14. Cost Tracking & Budget Controls**
+**16. Cost Tracking & Budget Controls**
 
 Track and display:
 
@@ -620,11 +630,11 @@ Track and display:
 - Estimated cost per run
 - Hard budget caps that stop the graph when exceeded
 
-**15. Async / Parallel Node Execution**
+**17. Async / Parallel Node Execution**
 
 Section workers already run conceptually in parallel, but within each section worker, the search → normalize → assess loop is sequential. For broad sections, run multiple search queries concurrently using asyncio or LangGraph's native async support.
 
-**16. Web UI / API Mode**
+**18. Web UI / API Mode**
 
 Wrap `run.py` in a FastAPI server with:
 
@@ -633,7 +643,7 @@ Wrap `run.py` in a FastAPI server with:
 - Simple React frontend showing plan → progress → report
 - Report history and re-run capability
 
-**17. Source Credibility Database**
+**19. Source Credibility Database**
 
 Build a lightweight credibility index for domains:
 
@@ -642,7 +652,7 @@ Build a lightweight credibility index for domains:
 
 Use this to weight evidence during writer-context preparation, not just as metadata.
 
-**18. Comparative Analysis Engine**
+**20. Comparative Analysis Engine**
 
 For queries classified as "comparative" (e.g., "LangGraph vs CrewAI"):
 
@@ -650,7 +660,7 @@ For queries classified as "comparative" (e.g., "LangGraph vs CrewAI"):
 - Auto-generate comparison tables
 - Flag when one side has significantly more/better sources
 
-**19. Citation Verification Loop**
+**21. Citation Verification Loop**
 
 After the report is written, run a verification pass:
 
@@ -658,7 +668,7 @@ After the report is written, run a verification pass:
 - Flag hallucinated citations (claims attributed to sources that don't support them)
 - Regenerate problem sections if citation accuracy is below threshold
 
-**20. Export Formats**
+**22. Export Formats**
 
 Beyond Markdown, support:
 

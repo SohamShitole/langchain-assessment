@@ -1,5 +1,8 @@
 # Deep Research Agent Configuration
 # Copy and edit this file to tune the agent. CLI args override these values.
+#
+# Research depth (Gradio "Mode" or CLI --research-mode): merges one of these over this file:
+#   config_research_basic.yaml    | config_research_advanced.yaml
 
 # ── Search Settings ──
 search:
@@ -15,6 +18,15 @@ extract:
   fetch_full_pages: true # enrich evidence with full page content
   extract_depth: "basic" # "basic" or "advanced" (for tables/structured data)
   full_page_max_chars: 10000 # max chars per enriched page
+
+# ── Caching Settings ──
+cache:
+  enabled: true # enable SQLite TTL cache for search and full-page extraction
+  db_path: ".cache/research_cache.sqlite" # cache file path
+  search_ttl_seconds: 43200 # 6h TTL for search responses
+  full_page_ttl_seconds: 43200 # 12h TTL for full-page extracted content
+  log: False # INFO summary lines to console / root logger; also written to process log if --log
+  log_verbose: false # per-query / per-URL HIT/MISS/STORE lines (noisy)
 
 # ── Model Settings ──
 models:
@@ -42,7 +54,7 @@ writer:
 section:
   max_iterations: 5 # max iterations per section worker
   queries_per_iteration: 5 # search queries per section iteration
-  max_parallel: 10 # max sections to research in parallel
+  max_parallel: 15 # max sections to research in parallel
   # Section summary quality: more evidence = better summaries (higher token cost)
   summary_top_n: 5 # max evidence items passed to section summary (was 10)
   summary_snippet_chars: 1200 # max chars per snippet in summary (was 500)
@@ -75,7 +87,7 @@ conflict:
 #
 # Only one of `preset` or `structure` needs to be set.
 report:
-  preset: 1 # Use preset 1 (Standard). Change to 2–10 for other layouts.
+  preset: 9 # Use preset 1 (Standard). Change to 2–10 for other layouts.
   # structure:                # Uncomment and fill to define a fully custom structure.
   #   - "Title"
   #   - "Executive Summary"
@@ -86,7 +98,7 @@ report:
 
 # ── Prompt Overrides (optional) ──
 # Set any key to a full replacement string to override the default prompt. Leave null to use built-in.
-# Keys: writer, enhanced_writer, report_assembly, research_plan, classify, planner_initial, planner_followup,
+# Keys: writer, enhanced_writer, report_assembly, research_plan, research_plan_edit, classify, planner_initial, planner_followup,
 #       normalize, coverage, decompose, section_query, section_query_followup, section_normalize,
 #       section_coverage, section_summary, section_draft, conflict_detect, conflict_resolve, conflict_adjudicate
 prompts: {}

@@ -1,10 +1,15 @@
 """Configuration for the research graph."""
 
+import logging
 import os
 from pathlib import Path
 from typing import Any
 
 from langchain_core.runnables import RunnableConfig
+
+from deep_research.cache import resolve_cache_db_path
+
+logger = logging.getLogger(__name__)
 
 # Path to the bundled report presets file (next to config.yaml in the project root)
 _PRESETS_FILE = Path(__file__).parent.parent / "report_presets.yaml"
@@ -14,16 +19,22 @@ DEFAULT_QUERIES_PER_ITERATION = 5
 DEFAULT_RESULTS_PER_QUERY = 5
 DEFAULT_WRITER_CONTEXT_MAX_ITEMS = 30
 DEFAULT_SEARCH_PROVIDER = "gensee"  # "gensee" | "gensee_deep" | "tavily" | "exa"
-DEFAULT_SEARCH_DEPTH = "advanced"  # "basic" (1 credit) or "advanced" (2 credits)
+DEFAULT_SEARCH_DEPTH = "basic"  # "basic" (1 credit) or "advanced" (2 credits)
 DEFAULT_INCLUDE_RAW_CONTENT = True
 DEFAULT_FETCH_FULL_PAGES = True  # Fetch full page content for better reports
 DEFAULT_FULL_PAGE_MAX_CHARS = 5000  # Max chars per page to keep context manageable
 DEFAULT_EXTRACT_DEPTH = "basic"  # "basic" or "advanced" (for tables/structured data)
+DEFAULT_CACHE_ENABLED = True
+DEFAULT_CACHE_DB_PATH = ".cache/research_cache.sqlite"
+DEFAULT_SEARCH_CACHE_TTL_SECONDS = 21600
+DEFAULT_FULL_PAGE_CACHE_TTL_SECONDS = 43200
+DEFAULT_CACHE_LOG = True
+DEFAULT_CACHE_LOG_VERBOSE = False
 
 # Phase 2: section workers and conflict resolution
 DEFAULT_SECTION_MAX_ITERATIONS = 3
 DEFAULT_SECTION_QUERIES_PER_ITERATION = 3
-DEFAULT_MAX_PARALLEL_SECTIONS = 6
+DEFAULT_MAX_PARALLEL_SECTIONS = 15
 DEFAULT_CONFLICT_RESOLUTION_ENABLED = True
 # Section summary: how much evidence the summary node sees (improves summary quality)
 DEFAULT_SECTION_SUMMARY_TOP_N = 25
@@ -68,6 +79,14 @@ _YAML_TO_FLAT = {
         "fetch_full_pages": "fetch_full_pages",
         "extract_depth": "extract_depth",
         "full_page_max_chars": "full_page_max_chars",
+    },
+    "cache": {
+        "enabled": "cache_enabled",
+        "db_path": "cache_db_path",
+        "search_ttl_seconds": "search_cache_ttl_seconds",
+        "full_page_ttl_seconds": "full_page_cache_ttl_seconds",
+        "log": "cache_log",
+        "log_verbose": "cache_log_verbose",
     },
     "models": {
         "classifier": "classifier_model",
@@ -137,22 +156,106 @@ def load_report_presets(path: str | Path | None = None) -> dict[int, list[str]]:
     return result
 
 
-def load_config_file(path: str | Path | None = None) -> dict[str, Any]:
-    """Load configuration from a YAML file. Returns empty dict if file missing or invalid."""
+def _config_dir_anchor(path_resolved: Path) -> str:
+    """Directory used to resolve relative cache paths (same folder as config.yaml)."""
+    return str(path_resolved.resolve().parent)
+
+
+_RESEARCH_MODE_OVERLAYS = frozenset({"basic", "advanced"})
+
+
+def _merge_yaml_root(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
+    """Merge top-level YAML mappings: for nested dict sections, overlay keys win (shallow per section)."""
+    out = dict(base)
+    for key, val in overlay.items():
+        if key in out and isinstance(out[key], dict) and isinstance(val, dict):
+            merged_section = dict(out[key])
+            merged_section.update(val)
+            out[key] = merged_section
+        else:
+            out[key] = val
+    return out
+
+
+def load_config_file(
+    path: str | Path | None = None,
+    *,
+    research_mode: str | None = None,
+) -> dict[str, Any]:
+    """Load configuration from a YAML file. Returns empty dict if file missing or invalid.
+
+    Injects ``_cache_path_anchor`` (parent dir of config file, or cwd) so relative
+    ``cache.db_path`` resolves next to your project, not the installed package.
+
+    If ``research_mode`` is ``\"basic\"`` or ``\"advanced\"``, merges
+    ``config_research_{mode}.yaml`` from the same directory as the base config file
+    (so shared settings stay in ``config.yaml`` and mode files only override research
+    depth / cost knobs).
+    """
     if path is None:
         path = Path.cwd() / "config.yaml"
     path = Path(path)
-    if not path.is_file():
-        return {}
-    try:
-        import yaml
+    cwd_anchor = str(Path.cwd().resolve())
 
-        with open(path, encoding="utf-8") as f:
-            data = yaml.safe_load(f)
-    except Exception:
-        return {}
-    if not isinstance(data, dict):
-        return {}
+    data: dict[str, Any] = {}
+    if path.is_file():
+        try:
+            import yaml
+
+            with open(path, encoding="utf-8") as f:
+                loaded = yaml.safe_load(f)
+            if isinstance(loaded, dict):
+                data = loaded
+            else:
+                logger.warning(
+                    "[config] invalid YAML root in %s; expected mapping",
+                    path,
+                )
+        except Exception as e:
+            logger.warning("[config] failed to read %s: %s", path, e)
+    else:
+        logger.info("[config] file not found: %s (using defaults / overlay only)", path)
+
+    if research_mode is not None:
+        mode = str(research_mode).strip().lower()
+        if mode not in _RESEARCH_MODE_OVERLAYS:
+            logger.warning(
+                "[config] unknown research_mode %r (expected basic|advanced); skipping overlay",
+                research_mode,
+            )
+        else:
+            overlay_path = path.parent / f"config_research_{mode}.yaml"
+            if overlay_path.is_file():
+                try:
+                    import yaml
+
+                    with open(overlay_path, encoding="utf-8") as f:
+                        overlay_raw = yaml.safe_load(f)
+                    if isinstance(overlay_raw, dict):
+                        data = _merge_yaml_root(data, overlay_raw)
+                        logger.info(
+                            "[config] merged research preset %r from %s",
+                            mode,
+                            overlay_path,
+                        )
+                    else:
+                        logger.warning(
+                            "[config] invalid YAML root in overlay %s",
+                            overlay_path,
+                        )
+                except Exception as e:
+                    logger.warning(
+                        "[config] failed to load overlay %s: %s",
+                        overlay_path,
+                        e,
+                    )
+            else:
+                logger.warning(
+                    "[config] research overlay not found: %s (preset %r skipped)",
+                    overlay_path,
+                    mode,
+                )
+
     flat: dict[str, Any] = {}
     for section, mappings in _YAML_TO_FLAT.items():
         section_data = data.get(section)
@@ -195,6 +298,17 @@ def load_config_file(path: str | Path | None = None) -> dict[str, Any]:
                         f"Available presets: {available}"
                     )
 
+    flat["_cache_path_anchor"] = (
+        _config_dir_anchor(path) if path.is_file() else cwd_anchor
+    )
+
+    logger.info(
+        "[config] loaded base=%s research_mode=%s mapped_keys=%d: %s",
+        path,
+        research_mode or "(none)",
+        len(flat),
+        ", ".join(sorted(k for k in flat.keys() if not k.startswith("_"))) if flat else "(none)",
+    )
     return flat
 
 
@@ -208,6 +322,7 @@ def get_config(config: RunnableConfig | dict[str, Any] | None) -> dict[str, Any]
         if isinstance(config, dict) and "configurable" in config
         else config
     ) or {}
+    cache_anchor = cfg.get("_cache_path_anchor") or str(Path.cwd().resolve())
     return {
         "max_iterations": cfg.get("max_iterations", DEFAULT_MAX_ITERATIONS),
         "queries_per_iteration": cfg.get(
@@ -240,6 +355,24 @@ def get_config(config: RunnableConfig | dict[str, Any] | None) -> dict[str, Any]
             "include_raw_content", DEFAULT_INCLUDE_RAW_CONTENT
         ),
         "extract_depth": cfg.get("extract_depth", DEFAULT_EXTRACT_DEPTH),
+        "cache_enabled": cfg.get("cache_enabled", DEFAULT_CACHE_ENABLED),
+        "cache_db_path": resolve_cache_db_path(
+            str(cfg.get("cache_db_path", DEFAULT_CACHE_DB_PATH)),
+            anchor=cache_anchor,
+        ),
+        "search_cache_ttl_seconds": cfg.get(
+            "search_cache_ttl_seconds",
+            DEFAULT_SEARCH_CACHE_TTL_SECONDS,
+        ),
+        "full_page_cache_ttl_seconds": cfg.get(
+            "full_page_cache_ttl_seconds",
+            DEFAULT_FULL_PAGE_CACHE_TTL_SECONDS,
+        ),
+        "cache_log": cfg.get("cache_log", DEFAULT_CACHE_LOG),
+        "cache_log_verbose": cfg.get(
+            "cache_log_verbose",
+            DEFAULT_CACHE_LOG_VERBOSE,
+        ),
         "section_max_iterations": cfg.get(
             "section_max_iterations", DEFAULT_SECTION_MAX_ITERATIONS
         ),

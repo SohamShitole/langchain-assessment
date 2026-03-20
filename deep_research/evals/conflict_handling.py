@@ -2,10 +2,15 @@
 
 from deep_research.evals.judge import judge_call, async_judge_call
 
-RUBRIC = """Score 0-10: Does the report honestly surface contradictions, uncertainties, or disagreements in the evidence?
-- It should NOT present contested facts as settled.
-- Penalise confident assertions where evidence conflicts.
-- 10 = clearly acknowledges conflicts/uncertainty; 0 = presents contested claims as facts."""
+RUBRIC = """Score 0-10: Does the report handle contradictions and uncertainty in a way that matches the research state given in CONTEXT?
+
+Use the line "Conflicts detected in research: N" and any "Conflict records" summary:
+
+1) If N is 0 and conflict records are empty or absent: the pipeline did not flag cross-source contradictions. Do NOT demand fake disagreements. Score 8–10 for a clear, coherent synthesis; 9–10 if it briefly notes limitations, versioning, or that views evolve where appropriate. Reserve scores below 5 only for brazen false certainty on topics that are obviously disputed in general knowledge, or for ignoring non-empty conflict records below.
+
+2) If N > 0 or conflict records describe specific clashing claims: the report must acknowledge those tensions or the stated resolution (winning claim / verdict). Score 10 when contradictions or residual uncertainty are surfaced honestly; score low if it silently picks one side or treats disputed claims as settled facts.
+
+Do not punish a technical overview for omitting a generic "limitations" section when no conflicts were detected."""
 
 
 def eval_conflict_handling(

@@ -51,17 +51,18 @@ A **graph-based deep research agent** that takes a question, plans a report, run
 7. **Section worker subgraph** (per section): generate_section_queries → section_search → section_normalize → section_assess_coverage → **route**: loop again (if incomplete and under budget) or generate_section_summary → END.
 8. **merge_section_evidence** — Combine section results, dedupe.
 9. **detect_global_gaps_and_conflicts** — Decide if conflict-resolution research is needed.
-10. **conflict_route** — If conflicts and enabled → **conflict_resolution_research**; else → **prepare_writer_context**.
-11. **prepare_writer_context** — Rank, cap, and select evidence for the writer.
-12. **write_sections** → **write_report** — Draft sections, assemble final report.
-13. **finalize_messages** — Append report to graph messages.
+10. **conflict_route** — If conflicts and enabled → **conflict_resolution_research** → **eval_stop_gate**; if not → **eval_stop_gate** directly (still run the stop gate before writing).
+11. **eval_stop_gate** + **stop_eval_route** — In-graph “stop decision” eval; may route back to **conflict_resolution_research** once if research looks insufficient and retry budget allows.
+12. **prepare_writer_context** — Rank, cap, and select evidence for the writer.
+13. **write_sections** → **write_report** — Draft sections, assemble final report.
+14. **finalize_messages** — Append report to graph messages.
 
 ### Key Files (Say Where Things Live)
 - **Entry / CLI**: `run.py`
 - **Main graph**: `deep_research/graph.py` — `create_research_graph()` (Phase 2), `create_research_graph_phase1()` (legacy).
 - **Section worker graph**: `deep_research/section_graph.py`
 - **State**: `deep_research/state.py` — `ResearchState`, `SectionWorkerState` (reducers for parallel workers).
-- **Routing**: `deep_research/routing.py` — `route` (Phase 1), `section_route`, `conflict_route`.
+- **Routing**: `deep_research/routing.py` — `route` (Phase 1), `section_route`, `conflict_route`, `stop_eval_route` (after `eval_stop_gate`).
 - **Nodes**: `deep_research/nodes/` — ingest, classify, planner, decompose, search, normalize, coverage, merge, conflicts, writer_context, section_writer, writer, finalize.
 - **Config**: `config.yaml`, `deep_research/configuration.py`, `report_presets.yaml`.
 - **Prompts**: `deep_research/prompts.py`.
@@ -76,9 +77,9 @@ A **graph-based deep research agent** that takes a question, plans a report, run
 - **Why explicit coverage + iteration budget**: “Search until done” is not a design; coverage checks make the loop predictable.
 
 ### Honest Shortcomings (From DESIGN.md)
-- Config and configuration.py not fully aligned for some planner model names.
-- Section summaries don’t get full evidence body yet.
-- Conflict resolution is still shallow.
+- ~~Config and configuration.py not fully aligned for planner model names.~~ **Resolved:** `config.yaml` uses `planner_simple` / `planner_complex` matching `configuration.py`.
+- ~~Section summaries don’t get full evidence body yet.~~ **Mostly addressed:** configurable top-N/snippet caps + optional `section.summary_evidence_max_chars` budget mode in `section_summary.py`; still not “entire evidence unlimited.”
+- Conflict resolution has been deepened (adjudication + writer-facing resolutions); can still go further (iterative resolution, etc.).
 - Dedup is URL-based (no semantic dedup yet).
 - Tests are more graph/smoke than deep node correctness.
 
@@ -87,7 +88,7 @@ A **graph-based deep research agent** that takes a question, plans a report, run
 ## 3. Likely Interview Questions & Answers
 
 **“Walk me through the architecture.”**  
-Use the Phase 2 flow above. Mention: ingest → classify → plan → (optional human approval) → decompose → parallel section workers → merge → conflict detection → optional conflict research → prepare writer context → write sections → write report → finalize. Emphasize state, conditional edges, and subgraph.
+Use the Phase 2 flow above. Mention: ingest → classify → plan → (optional human approval) → decompose → parallel section workers → merge → conflict detection → optional conflict research → **eval_stop_gate** (in-graph stop decision; optional retry back into conflict research) → prepare writer context → write sections → write report → finalize. Emphasize state, conditional edges, and subgraph.
 
 **“Why LangGraph?”**  
 We need loops (research until coverage or budget), branching (conflict vs no conflict), and a clear place to interrupt (plan approval). A graph makes that explicit and debuggable.
@@ -96,7 +97,7 @@ We need loops (research until coverage or budget), branching (conflict vs no con
 We normalize and curate evidence, map it to sections, and cap what the writer sees. We also repair the Sources section from state when needed. Evals include claim support and citation relevance.
 
 **“How do you handle conflicting information?”**  
-We detect global conflicts after merging section evidence. If enabled, we run a conflict_resolution_research step before preparing writer context; the writer then sees the reconciled picture.
+We detect global conflicts after merging section evidence. If enabled, we run **conflict_resolution_research**; either way we pass through **eval_stop_gate** before **prepare_writer_context**, so the writer sees curated evidence (and conflict resolutions when present).
 
 **“How is state managed with parallel section workers?”**  
 Section workers run as a subgraph. We use reducers in state: e.g. `section_results` with `operator.add`, `global_seen_urls` with `_merge_sets`, and `_keep_first` for fields like `query` so parallel updates don’t overwrite each other incorrectly.
@@ -189,8 +190,8 @@ These are the kinds of questions a Senior EM at LangChain would ask **about this
 
 ### Phase 3: "8th house" — hidden systems, debt, failure (Q11–14)
 
-11. **"Your DESIGN.md says config and configuration.py aren't fully aligned for some planner model names, and that section summaries don't get full evidence body yet. If you inherited this codebase, what would you fix first and why?"**  
-    *Probing:* Prioritization: correctness (writer fallback, config) vs quality (summaries) vs robustness (retries, rate limits).
+11. **"Your DESIGN.md said config and configuration.py weren't fully aligned for planner model names, and that section summaries didn't get full evidence body yet. If you inherited this codebase, what would you fix first and why?"** *(As of current tree: planner keys **are** aligned; section summaries have budget/top-N config—answer by verifying docs vs code, then prioritize remaining debt.)*  
+    *Probing:* Prioritization: correctness (config contract, writer fallback) vs quality (summary/evidence tuning) vs robustness (retries, rate limits).
 
 12. **"A run produces a report that cites a URL that never appeared in the evidence. Where in your pipeline could that leak, and how would you prevent it?"**  
     *Probing:* Writer only sees writer_evidence_subset/merged_evidence; source list rebuilt from state; hallucination vs bug in source assembly.

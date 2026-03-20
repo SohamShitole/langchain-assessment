@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import logging
 import os
 
 from langchain_openai import ChatOpenAI
@@ -11,8 +12,36 @@ from pydantic import BaseModel, Field
 from deep_research.configuration import get_config
 from deep_research.nodes.search import _run_one_query_async
 from deep_research.prompts import CONFLICT_ADJUDICATE_PROMPT, CONFLICT_DETECT_PROMPT, CONFLICT_RESOLVE_PROMPT, get_prompt
-from deep_research.research_logger import log_decision, log_node_end, log_node_start, log_prompt
+from deep_research.research_logger import (
+    log_cache_event,
+    log_decision,
+    log_node_end,
+    log_node_start,
+    log_prompt,
+)
 from deep_research.state import ResearchState
+
+logger = logging.getLogger(__name__)
+
+
+def _compact_conflicts_for_trace(conflicts: list, limit: int = 8) -> list[dict]:
+    """Small summary for research_trace / conflict_handling eval context."""
+    out: list[dict] = []
+    for raw in (conflicts or [])[:limit]:
+        c = raw if isinstance(raw, dict) else None
+        if c is None and hasattr(raw, "model_dump"):
+            c = raw.model_dump()
+        if not isinstance(c, dict):
+            continue
+        out.append(
+            {
+                "conflicting_claims": (c.get("conflicting_claims") or [])[:4],
+                "resolution_verdict": c.get("resolution_verdict") or c.get("resolution_note"),
+                "winning_claim": c.get("winning_claim"),
+                "resolved": c.get("resolved"),
+            }
+        )
+    return out
 
 
 class ConflictOutput(BaseModel):
@@ -84,6 +113,7 @@ async def detect_global_gaps_and_conflicts(
     trace = dict(state.get("research_trace") or {})
     trace["conflicts_detected"] = len(conflicts)
     trace["conflict_resolution_needed"] = conflict_resolution_needed
+    trace["conflict_records"] = _compact_conflicts_for_trace(conflicts)
 
     return {
         "global_conflicts": conflicts,
@@ -147,6 +177,11 @@ async def conflict_resolution_research(
     search_depth = cfg.get("search_depth") or "advanced"
     include_raw_content = cfg.get("include_raw_content", True)
     full_page_max_chars = cfg.get("full_page_max_chars", 20000)
+    cache_enabled = bool(cfg.get("cache_enabled", True))
+    cache_db_path = str(cfg.get("cache_db_path", ".cache/research_cache.sqlite"))
+    search_cache_ttl_seconds = int(cfg.get("search_cache_ttl_seconds", 21600))
+    cache_log = bool(cfg.get("cache_log", True))
+    cache_log_verbose = bool(cfg.get("cache_log_verbose", False))
 
     use_exa = provider == "exa" and exa_key
     use_tavily = provider == "tavily" and tavily_key
@@ -180,17 +215,46 @@ async def conflict_resolution_research(
             search_depth=search_depth,
             include_raw_content=include_raw_content,
             full_page_max_chars=full_page_max_chars,
+            cache_enabled=cache_enabled,
+            cache_db_path=cache_db_path,
+            search_cache_ttl_seconds=search_cache_ttl_seconds,
+            cache_log_verbose=cache_log_verbose,
             config=config,
         )
         for q in queries
     ]
     results_list = await asyncio.gather(*tasks, return_exceptions=True)
 
+    hits = misses = stores = 0
+    for res in results_list:
+        if isinstance(res, Exception):
+            continue
+        _rows, cstat = res
+        if cstat.get("hit"):
+            hits += 1
+        elif cache_enabled:
+            misses += 1
+        if cstat.get("store"):
+            stores += 1
+    if cache_enabled and cache_log:
+        logger.info(
+            "[cache] conflict_resolution search batch: queries=%d hits=%d misses=%d stores=%d",
+            len(queries),
+            hits,
+            misses,
+            stores,
+        )
+        log_cache_event(
+            "conflict_resolution_search_batch",
+            {"queries": len(queries), "hits": hits, "misses": misses, "stores": stores},
+        )
+
     new_items: list[dict] = []
     for res in results_list:
         if isinstance(res, Exception):
             continue
-        for r in res:
+        rows, _ = res
+        for r in rows:
             if not isinstance(r, dict):
                 continue
             url = r.get("url") or ""
@@ -253,10 +317,14 @@ async def conflict_resolution_research(
 
     log_node_end("conflict_resolution_research", {"queries_run": len(queries), "new_items_added": len(new_items), "adjudicated": len(updated_conflicts)})
 
+    trace = dict(state.get("research_trace") or {})
+    trace["conflict_records"] = _compact_conflicts_for_trace(updated_conflicts)
+
     return {
         "merged_evidence": merged,
         "global_conflicts": updated_conflicts,
         "global_seen_urls": seen_urls,
+        "research_trace": trace,
     }
 
 

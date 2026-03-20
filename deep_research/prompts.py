@@ -1,6 +1,13 @@
 """Prompt templates for the research graph."""
 
 
+def format_report_structure_for_planning(structure: list[str]) -> str:
+    """Ordered headings for research_plan / research_plan_edit prompts."""
+    if not structure:
+        return "(No report headings in config; infer sensible sections from the query.)"
+    return "\n".join(f"{i + 1}. {h}" for i, h in enumerate(structure))
+
+
 def get_prompt(name: str, cfg: dict, fallback: str) -> str:
     """Return override from config if present, otherwise the fallback default prompt."""
     overrides = cfg.get("prompt_overrides") or {}
@@ -113,10 +120,22 @@ RESEARCH_PLAN_PROMPT = """You are a research planner. The user wants a report on
 
 {query}
 
+The final report will use this **ordered top-level outline** (from the configured report preset). You must **cover** these headings with evidence, but `desired_structure` is **not** a copy of that list.
+
+**Report headings (in order):**
+{report_structure}
+
+**How to align (read carefully):**
+- Each `desired_structure` item is a **research workstream** (parallel search + synthesis). Its **`title` must be a concrete research theme**—e.g. "Tool landscape and vendor comparisons", "Evaluation metrics and benchmarks", "Failure modes and governance"—**not** the report heading repeated or "Abstract (feeds Abstract)". **Forbidden:** titles that are only a preset heading, or the pattern "Heading (feeds Heading)".
+- Put mapping to the report in **`description` only**: start with a short line like `Feeds report sections: …` then **3+ specific subtopics, angles, or questions** to investigate. Every description must show real research scope, not a restatement of the heading.
+- **Do not** create one shallow row per preset line. Merge related headings into fewer, deeper workstreams where it makes sense. **Skip** dedicated research tasks for: "Title"; "Sources"/"References" (citations come from all streams); "Abstract" (summarize other findings unless the query is meta); "Appendix" unless the query explicitly needs supplementary data. Prefer **roughly 4–8** substantive workstreams for typical presets—not a 1:1 clone of every line.
+- If one report heading is huge (e.g. "Results & Analysis"), split into **multiple themed** workstreams; say in each description which part of the report it supplies.
+- Keep `section_names` equal to the `desired_structure` titles in order (same strings).
+
 Create a first-class research plan. Do NOT generate search queries yet. Output:
 
 1. objective: The main research objective in one sentence.
-2. desired_structure: List of section definitions. Each: {{"id": "s1", "title": "...", "description": "what this section covers"}}
+2. desired_structure: List of section definitions. Each: {{"id": "s1", "title": "...", "description": "what this section covers; which report heading(s) it feeds; subtopics to research"}}
 3. section_names: List of section titles.
 4. difficulty_areas: List of topics that may be hard to research (e.g. proprietary data, conflicting sources).
 5. section_descriptions: For each section, what specific questions it must answer. List of {{"section_id": "s1", "must_answer": ["question 1", "question 2"]}}
@@ -134,6 +153,11 @@ RESEARCH_PLAN_EDIT_PROMPT = """You are a research planner. The user originally a
 
 **Original query:** {query}
 
+The final report must still follow this **ordered outline** (report preset). Revise the plan so `desired_structure` remains **themed research workstreams** (concrete titles), **not** a 1:1 mirror of every heading and **not** titles like "X (feeds X)". Map sections to headings **inside each description** (`Feeds report sections: …` plus subtopics). Merge or drop hollow tasks for Abstract, References, Title, Appendix unless the user or query demands them.
+
+**Report headings (in order):**
+{report_structure}
+
 We proposed this research plan:
 
 **Current plan:**
@@ -143,7 +167,7 @@ The user requested changes:
 
 **User feedback:** {feedback}
 
-Your task: Interpret the user's feedback in the context of their original query. Understand what they want changed (e.g. focus on different tools, add a section, remove a topic, compare specific things) and revise the plan accordingly. The revised plan must still align with the original query's intent; do not replace the topic with something unrelated—incorporate the user's edits so the plan better matches what they asked for.
+Your task: Interpret the user's feedback in the context of their original query. Understand what they want changed (e.g. focus on different tools, add a section, remove a topic, compare specific things) and revise the plan accordingly. The revised plan must still align with the original query's intent; do not replace the topic with something unrelated—incorporate the user's edits so the plan better matches what they asked for. Preserve alignment with the report headings above unless the user explicitly asks to ignore a part of the outline.
 
 Output a revised research plan in the same JSON format:
 {{

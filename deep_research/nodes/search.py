@@ -2,18 +2,128 @@
 
 import asyncio
 import json
+import logging
 import os
+import sys
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from langchain_core.runnables import RunnableConfig
 
-from deep_research.configuration import get_config
+from deep_research.cache import SQLiteTTLCache, append_cache_write_log, stable_cache_key
+from deep_research.configuration import (
+    DEFAULT_CACHE_DB_PATH,
+    DEFAULT_CACHE_ENABLED,
+    DEFAULT_CACHE_LOG_VERBOSE,
+    DEFAULT_SEARCH_CACHE_TTL_SECONDS,
+    get_config,
+)
+from deep_research.research_logger import log_cache_event
 from deep_research.state import ResearchState
 
 GENSEE_BASE_URL = "https://app.gensee.ai"
 GENSEE_SEARCH_ENDPOINT = f"{GENSEE_BASE_URL}/api/search"
 GENSEE_DEEP_SEARCH_ENDPOINT = f"{GENSEE_BASE_URL}/api/deep-search"
+logger = logging.getLogger(__name__)
+
+
+def _cache_query_preview(q: str, max_len: int = 72) -> str:
+    s = (q or "").strip().replace("\n", " ")
+    if len(s) <= max_len:
+        return s
+    return s[: max_len - 3] + "..."
+
+
+def _unwrap_langchain_tool_response(resp: object) -> dict:
+    """Normalize Tavily tool output to a dict.
+
+    ``ainvoke`` may return:
+    - a plain ``dict`` (direct call, tool_call_id=None);
+    - a ``ToolMessage`` whose ``content`` is JSON (when wrapped for tracing);
+    - a dict with an ``error`` key on some failure paths;
+    - an error **string** when Tavily raises ``ToolException`` and ``handle_tool_error=True``.
+    """
+    if isinstance(resp, dict):
+        return resp
+    # ToolMessage: full payload often in artifact, else JSON in content
+    if hasattr(resp, "artifact"):
+        art = getattr(resp, "artifact", None)
+        if isinstance(art, dict) and ("results" in art or "query" in art):
+            return art
+    if hasattr(resp, "content"):
+        c = getattr(resp, "content", None)
+        if isinstance(c, dict):
+            return c
+        if isinstance(c, str):
+            try:
+                parsed = json.loads(c)
+                if isinstance(parsed, dict):
+                    return parsed
+            except json.JSONDecodeError:
+                # e.g. "No search results found for '...'" — not JSON
+                return {"_tool_error_text": c[:500]}
+    return {}
+
+
+def _result_item_to_dict(x: object) -> dict | None:
+    if isinstance(x, dict):
+        return x
+    md = getattr(x, "model_dump", None)
+    if callable(md):
+        try:
+            out = md()
+            return out if isinstance(out, dict) else None
+        except Exception:
+            pass
+    d = getattr(x, "dict", None)
+    if callable(d):
+        try:
+            out = d()
+            return out if isinstance(out, dict) else None
+        except Exception:
+            pass
+    return None
+
+
+def _tavily_results_list(resp: object) -> list[dict]:
+    """Extract Tavily ``results`` list; handles wrapped ToolMessage and Pydantic result rows."""
+    d = _unwrap_langchain_tool_response(resp)
+    if d.get("_tool_error_text"):
+        logger.info(
+            "[search] tavily tool reported no/error results: %s",
+            (d["_tool_error_text"][:200] + "…")
+            if len(d["_tool_error_text"]) > 200
+            else d["_tool_error_text"],
+        )
+        return []
+    if "error" in d and "results" not in d:
+        logger.warning("[search] tavily tool error payload: %s", d.get("error"))
+        return []
+    raw = d.get("results")
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        return []
+    out: list[dict] = []
+    for x in raw:
+        item = _result_item_to_dict(x)
+        if item is not None:
+            out.append(item)
+    return out
+
+
+def _normalize_search_results(raw: object) -> list[dict]:
+    """Ensure list[dict]; APIs sometimes return None, Pydantic models, or mixed types."""
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        return []
+    out: list[dict] = []
+    for x in raw:
+        item = _result_item_to_dict(x)
+        if item is not None:
+            out.append(item)
+    return out
 
 
 def _gensee_search(query: str, api_key: str, max_results: int = 5, mode: str = "evidence") -> list[dict]:
@@ -147,7 +257,7 @@ def _tavily_search(
             resp = tool.invoke({"query": query})
     except Exception:
         return []
-    return resp.get("results", []) if isinstance(resp, dict) else []
+    return _tavily_results_list(resp)
 
 
 async def _tavily_search_async(
@@ -175,7 +285,7 @@ async def _tavily_search_async(
             resp = await tool.ainvoke({"query": query})
     except Exception:
         return []
-    return resp.get("results", []) if isinstance(resp, dict) else []
+    return _tavily_results_list(resp)
 
 
 def _exa_search(
@@ -253,26 +363,142 @@ async def _run_one_query_async(
     search_depth: str,
     include_raw_content: bool,
     full_page_max_chars: int,
-    config: RunnableConfig | None,
-) -> list[dict]:
-    """Run a single search query with the configured provider (async)."""
+    cache_enabled: bool = DEFAULT_CACHE_ENABLED,
+    cache_db_path: str = DEFAULT_CACHE_DB_PATH,
+    search_cache_ttl_seconds: int = DEFAULT_SEARCH_CACHE_TTL_SECONDS,
+    cache_log_verbose: bool = DEFAULT_CACHE_LOG_VERBOSE,
+    config: RunnableConfig | None = None,
+) -> tuple[list[dict], dict[str, bool]]:
+    """Run a single search query with the configured provider (async).
+
+    Returns (results, cache_stats) where cache_stats has hit/miss/store flags.
+    """
+    cstat: dict[str, bool] = {"hit": False, "miss": False, "store": False}
     if not q or not str(q).strip():
-        return []
+        return [], cstat
+    cache = None
+    cache_key = ""
+    provider_name = (
+        "gensee_deep" if use_gensee_deep else
+        "exa" if use_exa else
+        "tavily" if use_tavily else
+        "gensee" if use_gensee else
+        "unknown"
+    )
+    if cache_enabled:
+        cache_key = stable_cache_key(
+            "search",
+            {
+                "provider": provider_name,
+                "query": q.strip(),
+                "max_results": max_results,
+                "search_depth": search_depth,
+                "include_raw_content": include_raw_content,
+                "full_page_max_chars": full_page_max_chars,
+            },
+        )
+        try:
+            cache = SQLiteTTLCache(cache_db_path)
+        except Exception as e:
+            logger.warning(
+                "[cache] SQLite open/ init failed path=%s (stores will be 0): %s",
+                cache_db_path,
+                e,
+            )
+            cache = None
+        if cache is not None:
+            try:
+                cached = cache.get(cache_key)
+                if isinstance(cached, list):
+                    cstat["hit"] = True
+                    if cache_log_verbose:
+                        logger.info(
+                            "[cache] search HIT provider=%s query=%r key_suffix=%s",
+                            provider_name,
+                            _cache_query_preview(q),
+                            cache_key[-16:],
+                        )
+                    return cached, cstat
+            except Exception as e:
+                logger.warning(
+                    "[cache] SQLite read failed path=%s (continuing without read): %s",
+                    cache_db_path,
+                    e,
+                )
     try:
+        results: list[dict] = []
+        if cache_enabled:
+            cstat["miss"] = True
+            if cache_log_verbose:
+                logger.info(
+                    "[cache] search MISS provider=%s query=%r",
+                    provider_name,
+                    _cache_query_preview(q),
+                )
         if use_gensee_deep:
-            return await _gensee_deep_search_async(q, gensee_key)
-        if use_exa:
-            return await _exa_search_async(q, max_results, search_type="auto", max_chars=full_page_max_chars)
-        if use_tavily:
-            return await _tavily_search_async(
+            results = await _gensee_deep_search_async(q, gensee_key)
+        elif use_exa:
+            results = await _exa_search_async(q, max_results, search_type="auto", max_chars=full_page_max_chars)
+        elif use_tavily:
+            results = await _tavily_search_async(
                 q, max_results, search_depth=search_depth,
                 include_raw_content=include_raw_content, config=config,
             )
-        if use_gensee:
-            return await _gensee_search_async(q, gensee_key, max_results=max_results, mode="evidence")
-    except Exception:
-        pass
-    return []
+        elif use_gensee:
+            results = await _gensee_search_async(q, gensee_key, max_results=max_results, mode="evidence")
+        results = _normalize_search_results(results)
+        if cache_enabled and cache_key and results and cache is None:
+            logger.warning(
+                "[cache] search SKIP STORE (no DB client) path=%s — check permissions or path",
+                cache_db_path,
+            )
+        if cache and cache_key and results:
+            try:
+                cache.set(cache_key, results, int(search_cache_ttl_seconds))
+                cstat["store"] = True
+                n = len(results)
+                _wmsg = (
+                    f"[cache] wrote to SQLite | kind=search provider={provider_name} "
+                    f"num_results={n} query={_cache_query_preview(q)!r} db={cache_db_path}"
+                )
+                logger.info(_wmsg)
+                logging.getLogger().info(_wmsg)
+                print(_wmsg, file=sys.stderr, flush=True)
+                append_cache_write_log(_wmsg, db_path=cache_db_path)
+                if cache_log_verbose:
+                    logger.info(
+                        "[cache] search STORE detail key_suffix=%s",
+                        cache_key[-16:],
+                    )
+            except Exception as e:
+                logger.warning(
+                    "[cache] search STORE failed path=%s: %s",
+                    cache_db_path,
+                    e,
+                )
+        elif cache_enabled and cache_key and not results:
+            _diag = (
+                f"[cache] diagnostic | no STORE: 0 results from API | provider={provider_name} "
+                f"query={_cache_query_preview(q)!r} sqlite_open={'ok' if cache is not None else 'FAILED'} "
+                f"db={cache_db_path}"
+            )
+            logger.info(_diag)
+            append_cache_write_log(_diag, db_path=cache_db_path)
+            if cache_log_verbose:
+                logger.info(
+                    "[cache] search no STORE (empty results) provider=%s query=%r",
+                    provider_name,
+                    _cache_query_preview(q),
+                )
+        return results, cstat
+    except Exception as e:
+        logger.warning(
+            "[cache] search query failed before cache store | query=%r: %s",
+            _cache_query_preview(q),
+            e,
+            exc_info=True,
+        )
+    return [], cstat
 
 
 async def run_search(state: ResearchState, config: RunnableConfig | None = None) -> dict:
@@ -292,6 +518,21 @@ async def run_search(state: ResearchState, config: RunnableConfig | None = None)
     search_depth = cfg.get("search_depth") or "advanced"
     include_raw_content = cfg.get("include_raw_content", True)
     full_page_max_chars = cfg.get("full_page_max_chars", 20000)
+    cache_enabled = bool(cfg.get("cache_enabled", True))
+    cache_db_path = str(cfg.get("cache_db_path", ".cache/research_cache.sqlite"))
+    search_cache_ttl_seconds = int(cfg.get("search_cache_ttl_seconds", 21600))
+    cache_log = bool(cfg.get("cache_log", True))
+    cache_log_verbose = bool(cfg.get("cache_log_verbose", False))
+    logger.info(
+        "[search] using config | provider=%s max_queries=%s results_per_query=%s depth=%s include_raw=%s cache=%s ttl=%s",
+        provider,
+        max_queries,
+        max_results,
+        search_depth,
+        include_raw_content,
+        cache_enabled,
+        search_cache_ttl_seconds,
+    )
 
     gensee_key = (os.environ.get("GENSEE_API_KEY") or "").strip()
     tavily_key = (os.environ.get("TAVILY_API_KEY") or "").strip()
@@ -337,6 +578,10 @@ async def run_search(state: ResearchState, config: RunnableConfig | None = None)
             search_depth=search_depth,
             include_raw_content=include_raw_content,
             full_page_max_chars=full_page_max_chars,
+            cache_enabled=cache_enabled,
+            cache_db_path=cache_db_path,
+            search_cache_ttl_seconds=search_cache_ttl_seconds,
+            cache_log_verbose=cache_log_verbose,
             config=config,
         )
         for q in to_run
@@ -344,15 +589,38 @@ async def run_search(state: ResearchState, config: RunnableConfig | None = None)
     results_list = await asyncio.gather(*tasks, return_exceptions=True)
 
     # If any query failed (e.g. rate limit, insufficient credits), stop the flow
+    hits = misses = stores = 0
     for q, res in zip(to_run, results_list):
         if isinstance(res, Exception):
             return {
                 "raw_search_results": [],
                 "error_message": f"Search API failed: {res!s}",
             }
+        _rows, cstat = res
+        if cstat.get("hit"):
+            hits += 1
+        elif cache_enabled:
+            misses += 1
+        if cstat.get("store"):
+            stores += 1
+
+    if cache_enabled and cache_log:
+        logger.info(
+            "[cache] search batch: queries=%d hits=%d misses=%d stores=%d",
+            len(to_run),
+            hits,
+            misses,
+            stores,
+        )
+        log_cache_event(
+            "search_batch",
+            {"queries": len(to_run), "hits": hits, "misses": misses, "stores": stores},
+        )
+
     new_results: list[dict] = []
     for q, res in zip(to_run, results_list):
-        for r in res:
+        rows, _ = res
+        for r in rows:
             if not isinstance(r, dict):
                 continue
             url = r.get("url") or ""

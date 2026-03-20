@@ -7,9 +7,14 @@ from langchain_core.runnables import RunnableConfig
 
 from deep_research.configuration import (
     DEFAULT_PLANNER_COMPLEX_MODEL,
+    DEFAULT_REPORT_STRUCTURE,
     get_config,
 )
-from deep_research.prompts import RESEARCH_PLAN_PROMPT, get_prompt
+from deep_research.prompts import (
+    RESEARCH_PLAN_PROMPT,
+    format_report_structure_for_planning,
+    get_prompt,
+)
 from deep_research.research_logger import log_decision, log_node_end, log_node_start, log_prompt
 from deep_research.state import ResearchState
 
@@ -24,7 +29,14 @@ async def create_research_plan(
     planner_model = state.get("planner_model") or "gpt-4o-mini"
     cfg = get_config(config)
 
-    prompt = get_prompt("research_plan", cfg, RESEARCH_PLAN_PROMPT).format(query=query)
+    template = get_prompt("research_plan", cfg, RESEARCH_PLAN_PROMPT)
+    rs_text = format_report_structure_for_planning(
+        list(cfg.get("report_structure") or DEFAULT_REPORT_STRUCTURE)
+    )
+    if "{report_structure}" in template:
+        prompt = template.format(query=query, report_structure=rs_text)
+    else:
+        prompt = template.format(query=query)
     log_prompt("create_research_plan", prompt, model=planner_model)
     llm = ChatOpenAI(model=planner_model, temperature=0)
     raw = await llm.ainvoke([{"role": "user", "content": prompt}])

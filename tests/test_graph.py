@@ -1,6 +1,7 @@
 """Focused tests for the deep research graph."""
 
 import asyncio
+from pathlib import Path
 
 import pytest
 
@@ -252,6 +253,21 @@ def test_config_yaml_planner_keys():
     flat = load_config_file()
     assert "planner_simple_model" in flat, "planner_simple_model missing — config.yaml likely uses wrong key name"
     assert "planner_complex_model" in flat, "planner_complex_model missing — config.yaml likely uses wrong key name"
+
+
+def test_research_mode_basic_overlay():
+    """Basic preset overlay lowers max_iterations and section iterations."""
+    root = Path(__file__).resolve().parent.parent
+    cfg_yaml = root / "config.yaml"
+    basic_overlay = root / "config_research_basic.yaml"
+    if not cfg_yaml.is_file() or not basic_overlay.is_file():
+        pytest.skip("config.yaml / config_research_basic.yaml not in repo root")
+    flat = load_config_file(cfg_yaml, research_mode="basic")
+    assert flat.get("max_iterations") == 1
+    assert flat.get("queries_per_iteration") == 3
+    assert flat.get("results_per_query") == 3
+    assert flat.get("section_max_iterations") == 2
+    assert flat.get("section_queries_per_iteration") == 3
 
 
 def test_dispatch_respects_max_parallel_config():

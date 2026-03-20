@@ -1,16 +1,21 @@
 """prepare_writer_context node - curate evidence subset for the writer."""
 
 import asyncio
+import logging
 import re
 import ssl
+import sys
 from urllib.error import URLError
 from urllib.request import Request, urlopen
 
 from langchain_core.runnables import RunnableConfig
 
+from deep_research.cache import SQLiteTTLCache, append_cache_write_log, stable_cache_key
 from deep_research.configuration import get_config
-from deep_research.research_logger import log_node_end, log_node_start
+from deep_research.research_logger import log_cache_event, log_node_end, log_node_start
 from deep_research.state import ResearchState
+
+logger = logging.getLogger(__name__)
 
 # Optional: trafilatura for fallback extraction (install: pip install trafilatura)
 try:
@@ -21,6 +26,13 @@ except ImportError:
     TRAFILATURA_AVAILABLE = False
 
 _TAG_RE = re.compile(r"<[^>]+>")
+
+
+def _cache_url_preview(url: str, max_len: int = 72) -> str:
+    u = (url or "").strip()
+    if len(u) <= max_len:
+        return u
+    return u[: max_len - 3] + "..."
 
 
 def _strip_html(html: str) -> str:
@@ -189,6 +201,11 @@ async def prepare_writer_context(
     fetch_full = cfg.get("fetch_full_pages", False)
     max_chars = cfg.get("full_page_max_chars", 5000)
     extract_depth = cfg.get("extract_depth") or "basic"
+    cache_enabled = bool(cfg.get("cache_enabled", True))
+    cache_db_path = str(cfg.get("cache_db_path", ".cache/research_cache.sqlite"))
+    full_page_cache_ttl_seconds = int(cfg.get("full_page_cache_ttl_seconds", 43200))
+    cache_log = bool(cfg.get("cache_log", True))
+    cache_log_verbose = bool(cfg.get("cache_log_verbose", False))
 
     # Score: prefer primary, higher relevance; deprioritize redundant
     def _score(e: dict) -> float:
@@ -240,8 +257,15 @@ async def prepare_writer_context(
 
     # Enrich with full page content when enabled (async: Tavily -> Exa -> parallel trafilatura)
     if fetch_full:
+        cache: SQLiteTTLCache | None = None
+        if cache_enabled:
+            try:
+                cache = SQLiteTTLCache(cache_db_path)
+            except Exception:
+                cache = None
         enriched: list[dict] = []
         needs_extract: list[str] = []
+        fp_hits = fp_misses = fp_stores = 0
         for item in chosen:
             url = (item.get("url") or "").strip()
             if not url or not url.startswith("http"):
@@ -255,8 +279,40 @@ async def prepare_writer_context(
                     item["snippet"] = full_text
                 enriched.append(item)
             else:
-                needs_extract.append(url)
-                enriched.append(dict(item))
+                cached_text = None
+                if cache:
+                    cache_key = stable_cache_key(
+                        "full_page_extract",
+                        {"url": url, "extract_depth": extract_depth, "max_chars": max_chars},
+                    )
+                    try:
+                        candidate = cache.get(cache_key)
+                        if isinstance(candidate, str) and candidate:
+                            cached_text = candidate[:max_chars]
+                    except Exception:
+                        pass
+                if cached_text:
+                    fp_hits += 1
+                    if cache_log_verbose:
+                        logger.info(
+                            "[cache] full_page HIT url=%r key_ctx=depth=%s max_chars=%s",
+                            _cache_url_preview(url),
+                            extract_depth,
+                            max_chars,
+                        )
+                    item = dict(item)
+                    if len(cached_text) > len(item.get("snippet") or ""):
+                        item["snippet"] = cached_text
+                    enriched.append(item)
+                else:
+                    fp_misses += 1
+                    if cache_log_verbose:
+                        logger.info(
+                            "[cache] full_page MISS url=%r (will fetch)",
+                            _cache_url_preview(url),
+                        )
+                    needs_extract.append(url)
+                    enriched.append(dict(item))
 
         if needs_extract:
             extracted = await _tavily_extract_async(
@@ -279,8 +335,52 @@ async def prepare_writer_context(
                 url = (item.get("url") or "").strip()
                 if url in extracted:
                     full_text = extracted[url]
+                    if cache and full_text:
+                        cache_key = stable_cache_key(
+                            "full_page_extract",
+                            {"url": url, "extract_depth": extract_depth, "max_chars": max_chars},
+                        )
+                        try:
+                            cache.set(cache_key, full_text, full_page_cache_ttl_seconds)
+                            fp_stores += 1
+                            _wmsg = (
+                                f"[cache] wrote to SQLite | kind=full_page_extract "
+                                f"chars={len(full_text)} url={_cache_url_preview(url)!r} db={cache_db_path}"
+                            )
+                            logger.info(_wmsg)
+                            logging.getLogger().info(_wmsg)
+                            print(_wmsg, file=sys.stderr, flush=True)
+                            append_cache_write_log(_wmsg, db_path=cache_db_path)
+                            if cache_log_verbose:
+                                logger.info(
+                                    "[cache] full_page STORE detail key_suffix=%s",
+                                    cache_key[-16:],
+                                )
+                        except Exception as e:
+                            logger.warning(
+                                "[cache] full_page STORE failed path=%s: %s",
+                                cache_db_path,
+                                e,
+                            )
                     if len(full_text) > len(item.get("snippet") or ""):
                         item["snippet"] = full_text
+        if cache_enabled and cache_log and (fp_hits + fp_misses) > 0:
+            logger.info(
+                "[cache] full_page batch: candidates=%d hits=%d misses=%d stores=%d",
+                fp_hits + fp_misses,
+                fp_hits,
+                fp_misses,
+                fp_stores,
+            )
+            log_cache_event(
+                "full_page_batch",
+                {
+                    "candidates": fp_hits + fp_misses,
+                    "hits": fp_hits,
+                    "misses": fp_misses,
+                    "stores": fp_stores,
+                },
+            )
         chosen = enriched
 
     # Update trace

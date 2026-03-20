@@ -4,6 +4,7 @@
 import argparse
 import asyncio
 import json
+import logging
 import os
 import re
 import sys
@@ -17,11 +18,13 @@ load_dotenv()
 from langchain_core.messages import HumanMessage
 from langchain_openai import ChatOpenAI
 
-from deep_research.configuration import get_config, load_config_file
+from deep_research.configuration import DEFAULT_REPORT_STRUCTURE, get_config, load_config_file
 from deep_research.graph import create_research_graph
 from deep_research.langsmith_redact import redact_raw_content_in_payload
 from deep_research.progress import display_plan, print_progress, print_section_count
 from deep_research.research_logger import close_log, init_log
+
+logger = logging.getLogger(__name__)
 
 try:
     from langgraph.checkpoint.memory import MemorySaver
@@ -48,18 +51,33 @@ async def replan_with_feedback(
 ) -> dict:
     """Revise the research plan using the original query, current plan, and user feedback.
     The LLM interprets the feedback in context and returns an updated plan (state update dict)."""
-    from deep_research.prompts import RESEARCH_PLAN_EDIT_PROMPT, get_prompt
+    from deep_research.prompts import (
+        RESEARCH_PLAN_EDIT_PROMPT,
+        format_report_structure_for_planning,
+        get_prompt,
+    )
 
     current_plan = _json_safe(current_plan or {})
     config = _json_safe(config or {})
     cfg = get_config(config)
     template = get_prompt("research_plan_edit", cfg, RESEARCH_PLAN_EDIT_PROMPT)
     current_plan_str = json.dumps(current_plan, indent=2, default=str)
-    prompt = template.format(
-        query=query,
-        current_plan=current_plan_str,
-        feedback=feedback,
+    rs_text = format_report_structure_for_planning(
+        list(cfg.get("report_structure") or DEFAULT_REPORT_STRUCTURE)
     )
+    if "{report_structure}" in template:
+        prompt = template.format(
+            query=query,
+            current_plan=current_plan_str,
+            feedback=feedback,
+            report_structure=rs_text,
+        )
+    else:
+        prompt = template.format(
+            query=query,
+            current_plan=current_plan_str,
+            feedback=feedback,
+        )
     llm = ChatOpenAI(model=planner_model, temperature=0)
     raw = await llm.ainvoke([{"role": "user", "content": prompt}])
     text = raw.content if hasattr(raw, "content") else str(raw)
@@ -119,6 +137,13 @@ async def async_main() -> None:
         type=str,
         default=None,
         help="Path to config.yaml (default: ./config.yaml)",
+    )
+    parser.add_argument(
+        "--research-mode",
+        type=str,
+        choices=["basic", "advanced"],
+        default=None,
+        help="Merge config_research_{basic|advanced}.yaml over config (same directory as --config).",
     )
     parser.add_argument(
         "--max-iterations",
@@ -210,6 +235,7 @@ async def async_main() -> None:
         help="Skip research plan approval (non-interactive / CI)",
     )
     args = parser.parse_args()
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
     query = args.query.strip()
     if not query:
@@ -218,8 +244,8 @@ async def async_main() -> None:
         print("Usage: python run.py 'your research query'", file=sys.stderr)
         sys.exit(1)
 
-    # Load config: file first, then overlay CLI overrides
-    cfg = load_config_file(args.config)
+    # Load config: file first, optional research preset overlay, then CLI overrides
+    cfg = load_config_file(args.config, research_mode=args.research_mode)
     if args.max_iterations is not None:
         cfg["max_iterations"] = args.max_iterations
     if args.search_provider is not None:
@@ -230,6 +256,19 @@ async def async_main() -> None:
         cfg["extract_depth"] = args.extract_depth
     if args.max_iterations is not None:
         cfg["section_max_iterations"] = args.max_iterations
+    effective_cfg = get_config({"configurable": cfg})
+    logger.info(
+        "[config] effective settings | provider=%s depth=%s max_iter=%s qpi=%s rpq=%s writer_ctx=%s section_iter=%s section_qpi=%s cache=%s",
+        effective_cfg.get("search_provider"),
+        effective_cfg.get("search_depth"),
+        effective_cfg.get("max_iterations"),
+        effective_cfg.get("queries_per_iteration"),
+        effective_cfg.get("results_per_query"),
+        effective_cfg.get("writer_context_max_items"),
+        effective_cfg.get("section_max_iterations"),
+        effective_cfg.get("section_queries_per_iteration"),
+        effective_cfg.get("cache_enabled"),
+    )
 
     thread_id = f"research-{datetime.now().strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:8]}"
     run_config = {

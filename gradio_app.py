@@ -10,6 +10,7 @@ You can Proceed, Edit (with feedback), or Cancel—same as the CLI.
 
 import asyncio
 import json
+import logging
 import os
 import re
 import traceback
@@ -24,8 +25,10 @@ load_dotenv()
 
 from langchain_core.messages import HumanMessage
 
-from deep_research.configuration import load_config_file
+from deep_research.configuration import get_config, load_config_file
 from deep_research.graph import create_research_graph
+
+logger = logging.getLogger(__name__)
 
 try:
     from langgraph.checkpoint.memory import MemorySaver
@@ -523,10 +526,36 @@ async def run_research_async(
     config_path: str | None,
     output_dir: str,
     run_evals: bool,
+    research_mode: str | None = None,
 ):
     """Run graph until completion/interrupt. Yield (progress, report, trace, plan, approval_state, active_node)."""
     progress_lines: list[str] = []
-    cfg = load_config_file(Path(config_path) if config_path else None)
+    cfg = load_config_file(
+        Path(config_path) if config_path else None,
+        research_mode=research_mode,
+    )
+    effective_cfg = get_config({"configurable": cfg})
+    logger.info(
+        "[config] research_mode=%s | effective settings | provider=%s depth=%s max_iter=%s qpi=%s rpq=%s writer_ctx=%s section_iter=%s section_qpi=%s cache=%s",
+        research_mode or "(default file only)",
+        effective_cfg.get("search_provider"),
+        effective_cfg.get("search_depth"),
+        effective_cfg.get("max_iterations"),
+        effective_cfg.get("queries_per_iteration"),
+        effective_cfg.get("results_per_query"),
+        effective_cfg.get("writer_context_max_items"),
+        effective_cfg.get("section_max_iterations"),
+        effective_cfg.get("section_queries_per_iteration"),
+        effective_cfg.get("cache_enabled"),
+    )
+    logger.info(
+        "[config] cache paths | db=%s | writes_log=%s | anchor=%s",
+        effective_cfg.get("cache_db_path"),
+        str(Path(effective_cfg.get("cache_db_path", "")).parent / "cache_writes.log")
+        if effective_cfg.get("cache_db_path")
+        else "(n/a)",
+        cfg.get("_cache_path_anchor", "(none)"),
+    )
     thread_id = f"research-{datetime.now().strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:8]}"
     run_config: dict[str, Any] = {
         "configurable": {**cfg, "thread_id": thread_id},
@@ -574,6 +603,7 @@ async def run_research_async(
             "run_evals": run_evals,
             "output_dir": output_dir or "",
             "config_path": config_path or "",
+            "research_mode": research_mode or "",
             "progress_so_far": "\n".join(progress_lines),
             "plan": plan,
         }
@@ -852,7 +882,7 @@ def _yield_ui(
     return progress_html, plan_content or "", approval_state, approval_visible, report_md or "", tabs_update, btn_update, graph_html
 
 
-async def run_research(query: str):
+async def run_research(query: str, research_mode: str):
     """Start research; yield 8-item UI tuples. Fixed config/output/evals."""
     base_graph_html = _make_graph_html(active_node=None, completed_nodes=set())
     if not (query or query.strip()):
@@ -864,9 +894,16 @@ async def run_research(query: str):
     import gradio as gr
     completed_nodes: set[str] = set()
     last = None
+    mode = (research_mode or "advanced").strip().lower()
+    if mode not in ("basic", "advanced"):
+        mode = "advanced"
     try:
         async for progress, report, _trace, plan_md, approval_state, active_node in run_research_async(
-            query, config_path="", output_dir="output", run_evals=True
+            query,
+            config_path="",
+            output_dir="output",
+            run_evals=True,
+            research_mode=mode,
         ):
             if active_node and active_node in _GRAPH_NODE_IDS:
                 completed_nodes.add(active_node)
@@ -974,6 +1011,8 @@ def cancel_approval(_approval_state):
 
 def main():
     import gradio as gr
+
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
     custom_css = """
     /* ── Progress bar ─────────────────────────────────────────────────── */
@@ -1085,6 +1124,14 @@ def main():
                     placeholder="e.g. What are the main differences between LangGraph and CrewAI?",
                     lines=3,
                 )
+                research_mode = gr.Radio(
+                    choices=[
+                        ("Basic — faster, fewer searches", "basic"),
+                        ("Advanced — deeper research", "advanced"),
+                    ],
+                    value="advanced",
+                    label="Mode",
+                )
                 submit_btn = gr.Button("Run Deep Research", variant="primary", size="lg")
 
                 progress_html = gr.HTML(value="")
@@ -1121,7 +1168,7 @@ def main():
 
         submit_btn.click(
             fn=run_research,
-            inputs=[query],
+            inputs=[query, research_mode],
             outputs=[progress_html, plan_html, approval_state, approval_section, report_md, main_tabs, submit_btn, graph_viz_html],
         )
 

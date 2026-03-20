@@ -46,7 +46,7 @@ async def section_normalize(
     section_id = section_task.get("id", "")
     log_node_start("section_normalize", config, section_id=section_id)
 
-    raw = list(state.get("section_raw_results") or [])
+    section_raw_results = list(state.get("section_raw_results") or [])
     section_goal = section_task.get("goal", "")
 
     cfg = get_config(config)
@@ -62,7 +62,7 @@ async def section_normalize(
                     (r.get("raw_content") or r.get("content") or "")[:_TRUNCATE]
                 ),
             }
-            for r in raw
+            for r in section_raw_results
         ],
         indent=2,
     )
@@ -83,8 +83,8 @@ async def section_normalize(
         result = await structured.ainvoke([{"role": "user", "content": prompt}])
     except (ValidationError, Exception):
         # Fallback when function_calling returns malformed data (e.g. some providers)
-        raw = await llm.ainvoke([{"role": "user", "content": prompt}])
-        text = raw.content if hasattr(raw, "content") else str(raw)
+        fallback_msg = await llm.ainvoke([{"role": "user", "content": prompt}])
+        text = fallback_msg.content if hasattr(fallback_msg, "content") else str(fallback_msg)
         text = (text or "").strip()
         if "```" in text:
             for block in ("json", ""):
@@ -117,7 +117,7 @@ async def section_normalize(
 
     url_to_raw: dict[str, str] = {
         (r.get("url") or ""): (r.get("raw_content") or r.get("content") or "")
-        for r in raw
+        for r in section_raw_results
         if r.get("raw_content") or r.get("content")
     }
 
@@ -148,7 +148,10 @@ async def section_normalize(
         new_items.append(obj)
         new_seen.add(item.url)
 
-    log_node_end("section_normalize", {"raw_count": len(raw), "evidence_count": len(new_items)})
+    log_node_end(
+        "section_normalize",
+        {"raw_count": len(section_raw_results), "evidence_count": len(new_items)},
+    )
     return {
         "section_evidence": new_items,
         "section_seen_urls": new_seen,

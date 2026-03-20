@@ -1,0 +1,25 @@
+# Research preset: Advanced (deeper / higher cost).
+# Merged on top of config.yaml when Gradio mode = Advanced (or load_config_file(..., research_mode="advanced")).
+# Shared settings (models, cache, report preset, provider, writer, etc.) stay in config.yaml.
+
+search:
+  max_iterations: 3
+  queries_per_iteration: 10
+  results_per_query: 5
+  search_depth: "advanced"
+  include_raw_content: true
+
+extract:
+  fetch_full_pages: true
+  extract_depth: "basic"
+  full_page_max_chars: 10000
+
+section:
+  max_iterations: 5
+  queries_per_iteration: 5
+  max_parallel: 15
+  summary_top_n: 5
+  summary_snippet_chars: 1200
+
+conflict:
+  resolution_enabled: true

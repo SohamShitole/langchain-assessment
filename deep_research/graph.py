@@ -51,7 +51,8 @@ def create_research_graph(
 
     Flow: ingest -> classify -> create_research_plan -> decompose
           -> [Send section_worker per section] -> merge -> detect_conflicts
-          -> [optional conflict_resolution] -> prepare_writer -> write -> finalize
+          -> [optional conflict_resolution] -> eval_stop_gate -> [stop_eval may loop once to conflict_resolution]
+          -> prepare_writer -> write -> finalize
 
     If checkpointer and interrupt_after are provided, the graph pauses after
     the given node(s) for human-in-the-loop (e.g. plan approval).

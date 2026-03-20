@@ -1,14 +1,17 @@
 """section_search node - run search for one section's queries."""
 
 import asyncio
+import logging
 import os
 
 from langchain_core.runnables import RunnableConfig
 
 from deep_research.configuration import get_config
 from deep_research.nodes.search import _run_one_query_async
-from deep_research.research_logger import log_node_end, log_node_start
+from deep_research.research_logger import log_cache_event, log_node_end, log_node_start
 from deep_research.state import SectionWorkerState
+
+logger = logging.getLogger(__name__)
 
 
 async def section_search(
@@ -35,6 +38,11 @@ async def section_search(
     search_depth = cfg.get("search_depth") or "advanced"
     include_raw_content = cfg.get("include_raw_content", True)
     full_page_max_chars = cfg.get("full_page_max_chars", 20000)
+    cache_enabled = bool(cfg.get("cache_enabled", True))
+    cache_db_path = str(cfg.get("cache_db_path", ".cache/research_cache.sqlite"))
+    search_cache_ttl_seconds = int(cfg.get("search_cache_ttl_seconds", 21600))
+    cache_log = bool(cfg.get("cache_log", True))
+    cache_log_verbose = bool(cfg.get("cache_log_verbose", False))
 
     gensee_key = (os.environ.get("GENSEE_API_KEY") or "").strip()
     tavily_key = (os.environ.get("TAVILY_API_KEY") or "").strip()
@@ -82,6 +90,10 @@ async def section_search(
             search_depth=search_depth,
             include_raw_content=include_raw_content,
             full_page_max_chars=full_page_max_chars,
+            cache_enabled=cache_enabled,
+            cache_db_path=cache_db_path,
+            search_cache_ttl_seconds=search_cache_ttl_seconds,
+            cache_log_verbose=cache_log_verbose,
             config=config,
         )
         for q in to_run
@@ -89,6 +101,7 @@ async def section_search(
     results_list = await asyncio.gather(*tasks, return_exceptions=True)
 
     # If any query failed (e.g. rate limit, insufficient credits), stop the flow
+    hits = misses = stores = 0
     for q, res in zip(to_run, results_list):
         if isinstance(res, Exception):
             log_node_end("section_search", {"error": str(res)})
@@ -97,10 +110,39 @@ async def section_search(
                 "section_seen_urls": set(),
                 "error_message": f"Search API failed: {res!s}",
             }
+        _rows, cstat = res
+        if cstat.get("hit"):
+            hits += 1
+        elif cache_enabled:
+            misses += 1
+        if cstat.get("store"):
+            stores += 1
+
+    if cache_enabled and cache_log:
+        logger.info(
+            "[cache] section_search batch section=%s: queries=%d hits=%d misses=%d stores=%d",
+            section_id,
+            len(to_run),
+            hits,
+            misses,
+            stores,
+        )
+        log_cache_event(
+            "section_search_batch",
+            {
+                "section_id": section_id,
+                "queries": len(to_run),
+                "hits": hits,
+                "misses": misses,
+                "stores": stores,
+            },
+        )
+
     new_results: list[dict] = []
     new_seen: set[str] = set()
     for q, res in zip(to_run, results_list):
-        for r in res:
+        rows, _ = res
+        for r in rows:
             if not isinstance(r, dict):
                 continue
             url = r.get("url") or ""

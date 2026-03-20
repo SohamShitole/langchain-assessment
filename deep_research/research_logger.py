@@ -122,3 +122,15 @@ def log_section_header(title: str) -> None:
     _write(f"\n{'#' * 60}")
     _write(f"# {title}")
     _write(f"{'#' * 60}\n")
+
+
+def log_cache_event(event: str, details: dict | None = None) -> None:
+    """Log a cache hit/miss/store or batch summary (when process log file is enabled)."""
+    if not is_enabled():
+        return
+    _write(f"  [CACHE] {event}")
+    if details:
+        s = json.dumps(details, default=str)
+        if len(s) > _MAX_OUTPUT_CHARS:
+            s = s[:_MAX_OUTPUT_CHARS] + "... [truncated]"
+        _write(f"    {s}")
